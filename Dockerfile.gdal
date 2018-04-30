@@ -1,0 +1,30 @@
+FROM debian:buster-slim as gdal-base
+
+COPY --from=localdev /srv/localdev/scripts/ /srv/localdev/scripts/
+COPY image-scripts/gdal/apt.conf /etc/apt/apt.conf.d/gdal-apt.conf
+
+FROM gdal-base as gdal-python-build
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+	&& apt-get update \
+	&& apt-get install -y python-dev python-pip \
+	&& find /var/lib/apt/lists /var/cache/apt/archives -type f -delete \
+	&& pip install gunicorn mapnik==0.1 \
+	&& true
+
+FROM gdal-base
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+	&& apt-get update \
+	&& apt-get install -y unzip postgis gdal-bin python-gdal gdal-data osm2pgsql \
+	&& addgroup hostgroup \
+	&& adduser --gecos 'Host User' --ingroup hostgroup --disabled-password hostuser \
+	&& find /var/lib/apt/lists /var/cache/apt/archives -type f -delete \
+	&& true
+
+COPY --from=gdal-python-build /usr/local/lib/python2.7/dist-packages/ /usr/local/lib/python2.7/dist-packages/
+
+COPY image-scripts/gdal/entrypoint /srv/localdev/image-scripts/gdal/entrypoint
+
+ENTRYPOINT ["/srv/localdev/image-scripts/gdal/entrypoint"]
+

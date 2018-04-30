@@ -1,0 +1,38 @@
+# The base layer used for both prod and dev builds.  This contains
+# a script used to configure local maven mirrors, if specified.
+FROM node:8-stretch as gis_node
+COPY --from=localdev /srv/localdev/scripts/ /srv/localdev/scripts/
+COPY --from=localdev /srv/localdev/image-scripts/node/prep-image /srv/localdev/image-scripts/node/prep-image
+RUN ["/srv/localdev/image-scripts/node/prep-image"]
+COPY --from=localdev /srv/localdev/image-scripts/node/ /srv/localdev/image-scripts/node/
+
+# This layer expects /srv/app to be suitably volume-mounted
+# at runtime, so it can do the build during container start.
+# It can optionally make use of the following environment settings:
+#
+# MAVEN_REPO_MIRROR
+# UID
+# GID
+FROM gis_node as gis_dev
+WORKDIR /srv/app
+ENTRYPOINT ["/srv/localdev/image-scripts/node/entrypoint"]
+EXPOSE 8080
+
+# This layer copies in the needed source from the HOST, then builds
+# the application.  Subsequent layers will copy out what they need.
+FROM gis_node as gis_prod_build
+
+COPY scripts/build-npm /srv/app/build-npm
+COPY --chown=node:node eigood-app /srv/app/eigood-app
+
+WORKDIR /srv/app
+RUN ["/srv/localdev/image-scripts/node/entrypoint", "./build-npm"]
+
+# ---
+# This production image is meant to be small; it will *only* contain
+# the bare minimum needed to run the app.  No debug tools.
+FROM nginx:mainline-alpine as gis_prod
+
+COPY --from=gis_prod_build /srv/app/platform-ui/dist /srv/app/platform-ui/dist
+COPY scripts/static-nginx.conf /etc/nginx/conf.d/default.conf
+

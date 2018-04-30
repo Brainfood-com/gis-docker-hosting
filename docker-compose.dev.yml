@@ -1,0 +1,132 @@
+version: '3.4'
+
+x-logging: &_logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "10"
+
+x-node-base: &_node-base
+  build:
+    target: gis_dev
+    args:
+      - http_proxy
+    context: .
+    dockerfile: Dockerfile.node
+    network: localdev_default
+  command: ["app-npm", "gosu", "node", "npm", "run", "dev"]
+  image: gis-dev-node
+  networks:
+    localdev:
+    nginx:
+  restart: always
+
+networks:
+  app:
+  localdev:
+    external:
+      name: localdev_default
+  nginx:
+    external:
+      name: nginx
+
+volumes:
+  npm-cache:
+  pgdata:
+
+services:
+  postgresql:
+    build:
+      args:
+        - http_proxy
+      context: .
+      dockerfile: Dockerfile.postgresql
+      network: localdev_default
+    #command: /sbin/my_init
+    environment:
+      - PGDATA=/var/lib/postgresql/data
+    image: gis-postgresql
+    labels:
+      - com.brainfood.docker.localdev.target_user=postgres
+      - com.brainfood.docker.localdev.tool.pg_dump
+      - com.brainfood.docker.localdev.tool.psql
+    logging:
+      <<: *_logging
+    networks:
+      - app
+    volumes:
+      - /srv/docker/gis/postgresql/data:/var/lib/postgresql/data
+
+  geoserver:
+    build:
+      args:
+        - http_proxy
+        - MAVEN_REPO_MIRROR
+      context: .
+      dockerfile: Dockerfile.geoserver
+      network: localdev_default
+    depends_on:
+      - postgresql
+    environment:
+      - DOCKER_HOST_IP=/var/run/docker.sock
+      - VIRTUAL_HOST=geoserver.${VHOST_SUFFIX}
+      - VIRTUAL_PORT=8080
+      - NGINX_BASE_URL=http://geoserver.${VHOST_SUFFIX}
+    image: gis-geoserver
+    labels:
+      - com.brainfood.docker.localdev.tool.gs-shell=/usr/local/geoserver-shell/gs-shell
+      - com.brainfood.docker.localdev.tool.gs-shell.target_pwd=relative
+    logging:
+      <<: *_logging
+    networks:
+      nginx:
+      app:
+        aliases:
+          - geonode
+    ports:
+      - 8080
+    volumes:
+      - ./:/srv/app:ro
+#      - ./config/epsg_overrides.properties:/geoserver_data/data/user_projections/epsg_overrides.properties:ro
+
+  gdal:
+    build:
+      args:
+        - http_proxy
+      context: .
+      dockerfile: Dockerfile.gdal
+      network: localdev_default
+    depends_on:
+      - postgresql
+    env_file:
+      - ./.env.defaults
+    environment:
+      - PG_USE_COPY=1
+    image: gis-gdal
+    labels:
+      - com.brainfood.docker.localdev.target_pwd=relative
+      - com.brainfood.docker.localdev.target_user=hostuser
+      - com.brainfood.docker.localdev.tool.ogrinfo
+      - com.brainfood.docker.localdev.tool.ogr2ogr
+      - com.brainfood.docker.localdev.tool.osm2pgsql
+      - com.brainfood.docker.localdev.tool.shp2pgsql
+      - com.brainfood.docker.localdev.tool.python
+      - com.brainfood.docker.localdev.tool.read_location_data=/srv/app/android_location_converter/read_location_data.py
+    networks:
+      - app
+    volumes:
+      - .:/srv/app
+    working_dir: /srv/app
+
+  web-frontend:
+    <<: *_node-base
+    environment:
+      GIS_BUILD_TARGET:
+      GIS_GA_ID:
+      HOST: 0.0.0.0
+      VHOST_SUFFIX:
+      VIRTUAL_HOST: www.${VHOST_SUFFIX},${VHOST_SUFFIX}
+    volumes:
+      - npm-cache:/home/node/.npm/_cacache
+      - ./gis-frontend:/srv/app
+

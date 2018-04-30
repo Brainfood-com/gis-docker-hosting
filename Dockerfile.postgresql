@@ -1,0 +1,10 @@
+# The base layer used for both prod and dev builds.
+FROM postgres:10.3
+
+RUN apt-get update \
+        && apt-get install --no-install-suggests --no-install-recommends -y less postgresql-10-postgis-2.4 postgresql-10-postgis-2.4-scripts\
+        && find /var/lib/apt/lists /var/cache/apt/archives -type f -delete \
+        && true
+
+COPY 00-create-db.sql /docker-entrypoint-initdb.d/00-create-db.sql
+

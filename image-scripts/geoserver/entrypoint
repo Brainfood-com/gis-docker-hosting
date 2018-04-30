@@ -1,0 +1,54 @@
+#!/bin/bash
+
+set -e
+/srv/localdev/scripts/adjust-user geoserver geoserver
+
+declare -a replace_info=(
+	"global.xml:proxyBaseUrl:http://localhost:8000/geoserver"
+	"security/filter/geonode-oauth2/config.xml:accessTokenUri:http://localhost:8000/o/token/"
+	"security/filter/geonode-oauth2/config.xml:userAuthorizationUri:http://localhost:8000/o/authorize/"
+	"security/filter/geonode-oauth2/config.xml:redirectUri:http://localhost:8000/geoserver/index.html"
+	"security/filter/geonode-oauth2/config.xml:checkTokenEndpointUrl:http://localhost:8000/api/o/v4/tokeninfo/"
+	"security/filter/geonode-oauth2/config.xml:logoutUri:http://localhost:8000/account/logout/"
+	"security/role/geonode REST role service/config.xml:baseUrl:http://localhost:8000"
+)
+
+
+
+GEOSERVER_DATA_DIR=/geoserver_data/data
+declare -A all_files
+for item in "${replace_info[@]}"; do
+#	continue
+	[[ $VIRTUAL_HOST && $item =~ ^([^:]+):([^:]+):(.*)$ ]] || continue
+	file="${BASH_REMATCH[1]}"
+	tag="${BASH_REMATCH[2]}"
+	orig_value="${BASH_REMATCH[3]}"
+	[[ -e $GEOSERVER_DATA_DIR/$file ]] || continue
+	[[ -e $GEOSERVER_DATA_DIR/$file.orig ]] || cp "$GEOSERVER_DATA_DIR/$file" "$GEOSERVER_DATA_DIR/$file.orig"
+	sed -i -e "s,<$tag>https\?:[^:/]\+\(:[0-9]\+\)\?\(.*\?\)</$tag>,<$tag>http://$VIRTUAL_HOST\\2</$tag>," "$GEOSERVER_DATA_DIR/$file"
+	all_files[$GEOSERVER_DATA_DIR/$file]=1
+done
+
+set -x
+if ! grep -q CorsFilter /home/geoserver/tomcat8/conf/web.xml; then
+	head -n-1 /home/geoserver/tomcat8/conf/web.xml > /tmp/web.xml.new
+	cat >> /tmp/web.xml.new << _EOF_
+<filter>
+  <filter-name>CorsFilter</filter-name>
+  <filter-class>org.apache.catalina.filters.CorsFilter</filter-class>
+</filter>
+<filter-mapping>
+  <filter-name>CorsFilter</filter-name>
+  <url-pattern>/*</url-pattern>
+</filter-mapping>
+_EOF_
+	echo '</web-app>' >> /tmp/web.xml.new
+	mv /tmp/web.xml.new /home/geoserver/tomcat8/conf/web.xml
+fi
+
+pwd
+ls -al
+ls -al bin
+# grep '' "${!all_files[@]}"
+
+exec "$@"

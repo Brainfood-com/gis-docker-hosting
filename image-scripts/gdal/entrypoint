@@ -1,0 +1,8 @@
+#!/bin/sh
+
+PATH="/srv/localdev/scripts:$PATH"
+adjust-user hostuser hostgroup
+if [ $# -eq 0 ]; then
+	set -- sleep infinity
+fi
+exec "$@"

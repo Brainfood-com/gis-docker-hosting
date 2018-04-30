@@ -1,0 +1,9 @@
+[submodule "geoserver-shell"]
+	path = geoserver-shell
+	url = https://github.com/jericks/geoserver-shell.git
+[submodule "android_location_converter"]
+	path = android_location_converter
+	url = https://github.com/iboates/android_location_converter.git
+[submodule "gis-frontend"]
+	path = gis-frontend
+	url = git@github.com:Brainfood-com/gis-frontend.git

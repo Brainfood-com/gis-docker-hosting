@@ -1,0 +1,46 @@
+# The base layer used for both prod and dev builds.
+FROM maven:3.5.3-jdk-8-slim as geoserver-maven
+
+COPY --from=localdev /srv/localdev/scripts/ /srv/localdev/scripts/
+COPY --from=localdev /srv/localdev/image-scripts/maven/prep-image /srv/localdev/image-scripts/maven/prep-image
+RUN ["/srv/localdev/image-scripts/maven/prep-image"]
+COPY --from=localdev /srv/localdev/image-scripts/maven/ /srv/localdev/image-scripts/maven/
+
+FROM geoserver-maven as geoserver-shell-build
+
+ARG MAVEN_REPO_MIRROR
+COPY --chown=java:java geoserver-shell /srv/app/geoserver-shell/
+WORKDIR /srv/app/geoserver-shell/
+RUN ["/srv/localdev/image-scripts/maven/entrypoint", "app-mvn", "clean-mvn"]
+
+FROM openjdk:8-jdk-slim-stretch
+
+COPY --from=localdev /srv/localdev/scripts/ /srv/localdev/scripts/
+COPY image-scripts/geoserver/apt.conf /etc/apt/apt.conf.d/geoserver-apt.conf
+
+RUN apt-get update \
+	&& apt-get install -y -t stretch libgeos-c1v5 libproj12 libgdal-java tomcat8-user libservlet3.1-java gosu \
+	&& find /var/lib/apt/lists /var/cache/apt/archives -type f -delete \
+	&& ln -s /usr/lib/x86_64-linux-gnu/libproj.so.12 /usr/lib/x86_64-linux-gnu/libproj.so.0 \
+	&& addgroup geoserver \
+	&& adduser --gecos 'geoserver' --ingroup geoserver --disabled-password geoserver \
+	&& gosu geoserver tomcat8-instance-create /home/geoserver/tomcat8 \
+	&& true
+
+COPY --from=geonode/geoserver:2.13.x --chown=root:root /usr/local/tomcat/webapps/geoserver /home/geoserver/tomcat8/webapps/geoserver
+COPY --from=geonode/geoserver_data:2.13.x --chown=geoserver:geoserver /geoserver_data/data /geoserver_data/data
+COPY --from=geoserver-shell-build /srv/app/geoserver-shell/target/gs-shell-*.jar /usr/local/geoserver-shell/gs-shell.jar
+COPY gs-shell /usr/local/geoserver-shell/gs-shell
+
+RUN true \
+	&& rm /home/geoserver/tomcat8/webapps/geoserver/WEB-INF/lib/imageio-ext-gdal-bindings-1.9.2.jar \
+	&& cp /usr/share/java/gdal.jar /home/geoserver/tomcat8/webapps/geoserver/WEB-INF/lib/gdal.jar \
+	&& true
+
+COPY image-scripts/geoserver/entrypoint /srv/localdev/image-scripts/geoserver/entrypoint
+WORKDIR "/home/geoserver/tomcat8"
+ENV CATALINA_BASE /home/geoserver/tomcat8
+ENV GEOSERVER_DATA_DIR /geoserver_data/data
+
+ENTRYPOINT ["/srv/localdev/image-scripts/geoserver/entrypoint"]
+CMD ["gosu", "geoserver", "/usr/share/tomcat8/bin/catalina.sh", "run"]

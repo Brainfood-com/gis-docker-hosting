@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -e
+
+do_one_build() {
+	cd "$1"
+	gosu node npm install
+	gosu node npm run build
+}
+
+do_one_build /srv/app/eigood-app
+
+rm -rf /home/node/.npm/*
+

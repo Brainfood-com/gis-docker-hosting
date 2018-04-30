@@ -1,0 +1,9 @@
+COMPOSE_PROJECT_NAME=gis
+GIS_BUILD_TARGET=development
+# commment test
+#VHOST_SUFFIX=ml.localhost
+VHOST_SUFFIX=gis.tooz.private.brainfood.com
+MAVEN_REPO_MIRROR=(central:spring-milestone:spring-snapshot):http://maven-mirror/repository/localdev-maven-group
+http_proxy=http://http-proxy:3128
+MAP_UID=1000
+MAP_GID=1000

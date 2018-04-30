@@ -1,0 +1,26 @@
+geoserver set --url http://geoserver:8080/geoserver --user admin --password geoserver
+workspace create --name gis
+postgis datastore create --workspace gis --datastore postgresql --host postgresql --port 5432 --database gis --schema public --user gis --password sig
+
+#postgis featuretype publish --workspace gis --datastore postgresql --table eigood_gps
+
+#layer style add --name eigood_gps --style raster
+#layer style add --name eigood_gps --style line
+#layer style add --name eigood_gps --style point
+#layer modify --name eigood_gps --defaultStyle point
+
+postgis featuretype publish --workspace gis --datastore postgresql --table lariac_buildings
+#layer style add --name lariac_buildings --style raster
+#layer style add --name lariac_buildings --style line
+#layer style add --name lariac_buildings --style point
+#layer style add --name lariac_buildings --style polygon
+#layer modify --name lariac_buildings --defaultStyle polygon
+
+postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_06037_areawater
+postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_06037_roads
+postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_06_place
+postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_us_state
+postgis featuretype publish --workspace gis --datastore postgresql --table sunset_buildings
+postgis featuretype publish --workspace gis --datastore postgresql --table sunset_road
+postgis featuretype publish --workspace gis --datastore postgresql --table sunset_taxdata_2017
+postgis featuretype publish --workspace gis --datastore postgresql --table sunset_taxdata_2017_buildings

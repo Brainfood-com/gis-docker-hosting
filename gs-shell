@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+
+exec java -jar /usr/local/geoserver-shell/gs-shell.jar "$@"
+

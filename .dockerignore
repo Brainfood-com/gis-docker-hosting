@@ -1,0 +1,5 @@
+/geoserver-shell/.git/
+*/node_modules/
+/build/
+/data/
+/.var/
