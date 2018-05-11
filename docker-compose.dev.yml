@@ -128,5 +128,7 @@ services:
       VIRTUAL_HOST: www.${VHOST_SUFFIX},${VHOST_SUFFIX}
     volumes:
       - npm-cache:/home/node/.npm/_cacache
-      - ./gis-frontend:/srv/app
+      - .:/srv/app
+      - ./gis-frontend:/srv/app/git-frontend
+    working_dir: /srv/app/git-frontend
 

@@ -8,4 +8,5 @@ GRANT ALL PRIVILEGES ON DATABASE gis TO gis;
 \c gis
 CREATE EXTENSION postgis;
 CREATE EXTENSION postgis_topology;
+CREATE EXTENSION pg_trgm;
 

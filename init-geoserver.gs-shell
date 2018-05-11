@@ -22,5 +22,6 @@ postgis featuretype publish --workspace gis --datastore postgresql --table tl_20
 postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_us_state
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_buildings
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_road
+postgis featuretype publish --workspace gis --datastore postgresql --table sunset_road_merged
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_taxdata_2017
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_taxdata_2017_buildings
