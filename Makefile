@@ -59,22 +59,51 @@ shp_table_name = tl_2017_us_state
 include rules.shp.mk
 
 view_table_name = sunset_road
-view_sql = SELECT DISTINCT * FROM tl_2017_06037_roads WHERE LOWER(fullname) LIKE '%sunset blvd' AND ogc_fid NOT IN (120830, 124926, 122082, 123459, 124930, 124247, 121508, 124884, 135036, 131438, 74876)
+view_sql = SELECT DISTINCT * FROM tl_2017_06037_roads WHERE LOWER(fullname) LIKE '%sunset blvd'
 view_dep_tables = tl_2017_06037_roads
 include rules.view.mk
 
-view_table_name = sunset_road_merged
-view_sql = SELECT ST_LINEMERGE(ST_UNION(wkb_geometry)) AS geom FROM sunset_road;
-view_sql = SELECT st_approximatemedialaxis(ST_BUFFER(ST_COLLECT(wkb_geometry), 0.00003)) AS geom FROM sunset_road;
-#view_sql = SELECT ST_BUFFER(ST_COLLECT(wkb_geometry), 0.00002) AS geom FROM sunset_road;
-#view_sql = select st_straightskeleton(foo) as geom from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .0001))).geom as foo from sunset_road limit 1) as foo;
-#view_sql = select st_collect(st_approximatemedialaxis(foo)) as geom from (select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road limit 1 offset 1) as foo union select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road offset 3) as foo) as foo
+# another county?
+# 135036 131438
+#
+# Cesar E Chavez rename?
+# 124884
+#
+# Extrude?
+# 124926 121508 124247 124930
+
+view_table_name = sunset_road_problems
+view_sql = SELECT DISTINCT * FROM sunset_road WHERE ogc_fid IN (135036, 131438, 124884, 124926, 121508, 124247, 124930)
 view_dep_tables = sunset_road
 include rules.view.mk
 
+view_table_name = sunset_road_reduced
+view_sql = SELECT DISTINCT * FROM sunset_road WHERE ogc_fid NOT IN (SELECT ogc_fid FROM sunset_road_problems)
+view_dep_tables = sunset_road_problems
+include rules.view.mk
+
+view_table_name = sunset_road_debug
+view_sql = SELECT ST_LineMerge(ST_Transform(ST_ApproximateMedialAxis(ST_Transform(ST_Simplify(ST_BUFFER(ST_COLLECT(wkb_geometry), 0.0005), 0.0001), 900913)), 4326)) AS geom FROM sunset_road_reduced;
+#view_sql = SELECT st_simplify(ST_BUFFER(ST_COLLECT(wkb_geometry), 0.0005), 0.0001) AS geom FROM sunset_road_reduced;
+#view_sql = SELECT ST_BUFFER(ST_COLLECT(wkb_geometry), 0.00002) AS geom FROM sunset_road;
+#view_sql = select st_straightskeleton(foo) as geom from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .0001))).geom as foo from sunset_road limit 1) as foo;
+#view_sql = select st_collect(st_approximatemedialaxis(foo)) as geom from (select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road limit 1 offset 1) as foo union select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road offset 3) as foo) as foo
+view_dep_tables = sunset_road_reduced
+include rules.view.mk
+
+view_table_name = sunset_road_merged
+view_sql = SELECT ST_LINEMERGE(ST_UNION(wkb_geometry)) AS geom FROM sunset_road_reduced;
+#view_sql = SELECT st_approximatemedialaxis(ST_BUFFER(ST_COLLECT(wkb_geometry), 0.00003)) AS geom FROM sunset_road_reduced;
+view_sql = SELECT ST_LineMerge(ST_Transform(ST_ApproximateMedialAxis(ST_Transform(ST_Simplify(ST_BUFFER(ST_COLLECT(wkb_geometry), 0.0005), 0.0001), 900913)), 4326)) AS geom FROM sunset_road_reduced;
+#view_sql = SELECT ST_BUFFER(ST_COLLECT(wkb_geometry), 0.00002) AS geom FROM sunset_road;
+#view_sql = select st_straightskeleton(foo) as geom from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .0001))).geom as foo from sunset_road limit 1) as foo;
+#view_sql = select st_collect(st_approximatemedialaxis(foo)) as geom from (select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road limit 1 offset 1) as foo union select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road offset 3) as foo) as foo
+view_dep_tables = sunset_road_reduced
+include rules.view.mk
+
 view_table_name = sunset_buildings
-view_sql = SELECT DISTINCT a.* from lariac_buildings a INNER JOIN sunset_road b ON ST_DWithin(a.wkb_geometry, b.wkb_geometry, 0.001)
-view_dep_tables = lariac_buildings sunset_road
+view_sql = SELECT DISTINCT a.* from lariac_buildings a INNER JOIN sunset_road_reduced b ON ST_DWithin(a.wkb_geometry, b.wkb_geometry, 0.001)
+view_dep_tables = lariac_buildings sunset_road_reduced
 include rules.view.mk
 
 csv_table_name = taxdata
