@@ -7,3 +7,9 @@
 [submodule "gis-frontend"]
 	path = gis-frontend
 	url = git@github.com:Brainfood-com/gis-frontend.git
+[submodule "gis-iiif-loader"]
+	path = gis-iiif-loader
+	url = git@github.com:Brainfood-com/gis-iiif-loader.git
+[submodule "gis-api"]
+	path = gis-api
+	url = git@github.com:Brainfood-com/gis-api.git

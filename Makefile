@@ -15,6 +15,9 @@ default:
 import:
 prune:
 
+PSQL_db = GIS
+PSQL = ./gis.sh psql gis ${POSTGRES_${PSQL_db}_USER} < /dev/null
+
 include rules.mk
 
 # These are tools used by later steps
@@ -30,9 +33,10 @@ tabledrop-%::
 	rm -f $(TOP_LEVEL)/build/stamps/table-$*
 	$(MAKE) -s tabledropdeps-$*
 
-$(TOP_LEVEL)/build/stamps/table-%::
-	@mkdir -p $(@D)
-	$(MAKE) -s tabledrop-$*
+#$(TOP_LEVEL)/build/stamps/table-%::
+#	@mkdir -p $(@D)
+#	echo 'bar' "$@"
+#	$(MAKE) -s tabledrop-$*
 
 shp_data_file = data/lariac_buildings_2008.zip
 shp_table_name = lariac_buildings
@@ -60,7 +64,7 @@ include rules.shp.mk
 
 view_table_name = sunset_road
 view_sql = SELECT DISTINCT * FROM tl_2017_06037_roads WHERE LOWER(fullname) LIKE '%sunset blvd'
-view_dep_tables = tl_2017_06037_roads
+view_table_deps = tl_2017_06037_roads
 include rules.view.mk
 
 # another county?
@@ -74,12 +78,12 @@ include rules.view.mk
 
 view_table_name = sunset_road_problems
 view_sql = SELECT DISTINCT * FROM sunset_road WHERE ogc_fid IN (135036, 131438, 124884, 124926, 121508, 124247, 124930)
-view_dep_tables = sunset_road
+view_table_deps = sunset_road
 include rules.view.mk
 
 view_table_name = sunset_road_reduced
 view_sql = SELECT DISTINCT * FROM sunset_road WHERE ogc_fid NOT IN (SELECT ogc_fid FROM sunset_road_problems)
-view_dep_tables = sunset_road_problems
+view_table_deps = sunset_road_problems
 include rules.view.mk
 
 view_table_name = sunset_road_debug
@@ -88,7 +92,7 @@ view_sql = SELECT ST_LineMerge(ST_Transform(ST_ApproximateMedialAxis(ST_Transfor
 #view_sql = SELECT ST_BUFFER(ST_COLLECT(wkb_geometry), 0.00002) AS geom FROM sunset_road;
 #view_sql = select st_straightskeleton(foo) as geom from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .0001))).geom as foo from sunset_road limit 1) as foo;
 #view_sql = select st_collect(st_approximatemedialaxis(foo)) as geom from (select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road limit 1 offset 1) as foo union select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road offset 3) as foo) as foo
-view_dep_tables = sunset_road_reduced
+view_table_deps = sunset_road_reduced
 include rules.view.mk
 
 view_table_name = sunset_road_merged
@@ -98,13 +102,95 @@ view_sql = SELECT ST_LineMerge(ST_Transform(ST_ApproximateMedialAxis(ST_Transfor
 #view_sql = SELECT ST_BUFFER(ST_COLLECT(wkb_geometry), 0.00002) AS geom FROM sunset_road;
 #view_sql = select st_straightskeleton(foo) as geom from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .0001))).geom as foo from sunset_road limit 1) as foo;
 #view_sql = select st_collect(st_approximatemedialaxis(foo)) as geom from (select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road limit 1 offset 1) as foo union select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road offset 3) as foo) as foo
-view_dep_tables = sunset_road_reduced
+view_table_deps = sunset_road_reduced
 include rules.view.mk
 
 view_table_name = sunset_buildings
 view_sql = SELECT DISTINCT a.* from lariac_buildings a INNER JOIN sunset_road_reduced b ON ST_DWithin(a.wkb_geometry, b.wkb_geometry, 0.001)
-view_dep_tables = lariac_buildings sunset_road_reduced
+view_table_deps = lariac_buildings sunset_road_reduced
 include rules.view.mk
+
+static_table_name = iiif
+define static_table_schema
+(
+	iiif_id SERIAL PRIMARY KEY,
+	iiif_type_id TEXT,
+	external_id TEXT UNIQUE,
+
+	label TEXT
+)
+endef
+include rules.static-table.mk
+index_table_name = iiif
+index_schema = CREATE INDEX iiif_external_id ON iiif(external_id)
+include rules.index.mk
+
+static_table_name = iiif_canvas
+define static_table_schema
+(
+	iiif_id INTEGER REFERENCES iiif(iiif_id) PRIMARY KEY,
+
+	format TEXT,
+	height INTEGER,
+	image TEXT,
+	thumbnail TEXT,
+	width INTEGER
+)
+endef
+static_table_deps = iiif
+include rules.static-table.mk
+
+static_table_name = iiif_manifest
+define static_table_schema
+(
+	iiif_id INTEGER REFERENCES iiif(iiif_id) PRIMARY KEY,
+
+	attribution TEXT,
+	description TEXT,
+	license TEXT,
+	logo TEXT,
+	viewing_hint TEXT
+)
+endef
+static_table_deps = iiif
+include rules.static-table.mk
+
+static_table_name = iiif_range
+define static_table_schema
+(
+	iiif_id INTEGER REFERENCES iiif(iiif_id) PRIMARY KEY,
+
+	viewing_hint TEXT
+)
+endef
+static_table_deps = iiif
+include rules.static-table.mk
+
+static_table_name = iiif_assoc
+define static_table_schema
+(
+	iiif_id_from INTEGER REFERENCES iiif(iiif_id),
+	iiif_id_to INTEGER REFERENCES iiif(iiif_id),
+	iiif_assoc_type_id TEXT,
+	sequence_num NUMERIC,
+	PRIMARY KEY (iiif_id_from, iiif_id_to, iiif_assoc_type_id)
+)
+endef
+static_table_deps = iiif
+include rules.static-table.mk
+
+static_table_name = iiif_metadata
+define static_table_schema
+(
+	iiif_id INTEGER REFERENCES iiif(iiif_id),
+	label TEXT UNIQUE,
+	sequence_num NUMERIC,
+	value TEXT,
+	PRIMARY KEY (iiif_id, label, sequence_num)
+)
+endef
+static_table_deps = iiif
+include rules.static-table.mk
 
 csv_table_name = taxdata
 define csv_schema
@@ -186,21 +272,21 @@ include rules.index.mk
 
 view_table_name = sunset_taxdata
 view_sql = SELECT * FROM taxdata a WHERE street_name = 'SUNSET BLVD'
-view_dep_tables = taxdata
+view_table_deps = taxdata
 include rules.view.mk
 
 view_table_name = sunset_taxdata_2017
 view_sql = SELECT * FROM sunset_taxdata WHERE roll_year = '2017'
-view_dep_tables = sunset_taxdata
+view_table_deps = sunset_taxdata
 include rules.view.mk
 
 view_table_name = sunset_taxdata_2017_buildings
 view_sql = SELECT b.* FROM sunset_taxdata_2017 a INNER JOIN lariac_buildings b ON a.ain::text = b.ain
-view_dep_tables = sunset_taxdata_2017 lariac_buildings
+view_table_deps = sunset_taxdata_2017 lariac_buildings
 include rules.view.mk
 
 view_table_name = sunset_taxdata_buildings
 view_sql = SELECT DISTINCT b.* FROM sunset_taxdata a INNER JOIN lariac_buildings b ON a.ain::text = b.ain
-view_dep_tables = sunset_taxdata_2017 lariac_buildings
+view_table_deps = sunset_taxdata_2017 lariac_buildings
 include rules.view.mk
 

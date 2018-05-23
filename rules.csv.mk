@@ -19,7 +19,6 @@ endif
 
 # Always define the rules
 csv-import:
-PSQL = ./gis.sh psql gis ${POSTGRES_DB_USER}
 
 ifeq ($(csv_rules_needed),1)
 
@@ -27,6 +26,7 @@ csvimport tableimport: table-$(csv_table_name)
 index-$(csv_table_name):
 table-$(csv_table_name): $(TOP_LEVEL)/build/stamps/table-$(csv_table_name)
 tabledrop: tabledrop-$(csv_table_name)
+tabledrop-$(csv_table_name):: PSQL_db := $(PSQL_db)
 tabledrop-$(csv_table_name):: csv_table_name := $(csv_table_name)
 tabledrop-$(csv_table_name)::
 	rm -f $(TOP_LEVEL)/build/stamps/table-$(csv_table_name)
@@ -34,6 +34,7 @@ tabledrop-$(csv_table_name)::
 	$(MAKE) -s tabledropdeps-$(csv_table_name)
 	$(PSQL) -c "DROP TABLE IF EXISTS $(csv_table_name) CASCADE"
 
+$(TOP_LEVEL)/build/stamps/table-$(csv_table_name): PSQL_db := $(PSQL_db)
 $(TOP_LEVEL)/build/stamps/table-$(csv_table_name): csv_table_name := $(csv_table_name)
 $(TOP_LEVEL)/build/stamps/table-$(csv_table_name): export csv_extra_index := $(csv_extra_index)
 $(TOP_LEVEL)/build/stamps/table-$(csv_table_name): export csv_schema := $(csv_schema)
@@ -41,7 +42,7 @@ $(TOP_LEVEL)/build/stamps/table-$(csv_table_name):: $(csv_file)
 	@mkdir -p $(@D)
 	$(MAKE) -s tabledrop-$(csv_table_name)
 	$(PSQL) -c "CREATE TABLE $(csv_table_name) $$csv_schema"
-	zcat $< | buffer -z 262144 | docker exec -i gis_postgresql_1 psql gis ${POSTGRES_DB_USER} -c "COPY $(csv_table_name) FROM STDIN CSV HEADER"
+	zcat $< | buffer -z 262144 | docker exec -i gis_postgresql_1 psql ${POSTGRES_${PSQL_db}_NAME} ${POSTGRES_${PSQL_db}_USER} -c "COPY $(csv_table_name) FROM STDIN CSV HEADER"
 	$(MAKE) -s index-$(csv_table_name)
 ifneq ($(csv_extra_index),)
 	$(PSQL) -c "$$csv_extra_index"
@@ -53,3 +54,4 @@ csv_table_name =
 csv_schema =
 csv_file =
 csv_extra_index =
+PSQL_db = GIS

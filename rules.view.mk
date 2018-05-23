@@ -13,13 +13,12 @@ endif
 ifeq ($(strip $(view_sql)),)
 override view_rules_needed =
 endif
-ifeq ($(strip $(view_dep_tables)),)
+ifeq ($(strip $(view_table_deps)),)
 override view_rules_needed =
 endif
 
 # Always define the rules
 view-import:
-PSQL = ./gis.sh psql gis ${POSTGRES_DB_USER} < /dev/null
 
 ifeq ($(view_rules_needed),1)
 
@@ -29,13 +28,14 @@ viewimport tableimport: table-$(view_table_name)
 table-$(view_table_name): $(TOP_LEVEL)/build/stamps/table-$(view_table_name)
 tabledropdeps-$(view_table_name)::
 tabledrop: tabledrop-$(view_table_name)
+tabledrop-$(view_table_name):: PSQL_db := $(PSQL_db)
 tabledrop-$(view_table_name):: view_table_name := $(view_table_name)
 tabledrop-$(view_table_name)::
 	rm -f $(TOP_LEVEL)/build/stamps/table-$(view_table_name)
 	$(MAKE) -s tabledropdeps-$(view_table_name)
 	$(PSQL) -c "DROP MATERIALIZED VIEW IF EXISTS $(view_table_name)"
 
-$(patsubst %,tabledropdeps-%,$(view_dep_tables)):: tabledrop-$(view_table_name)
+$(patsubst %,tabledropdeps-%,$(view_table_deps)):: tabledrop-$(view_table_name)
 $(TOP_LEVEL)/build/stamps/view-$(view_table_name).$(view_def_md5sum): view_table_name := $(view_table_name)
 $(TOP_LEVEL)/build/stamps/view-$(view_table_name).$(view_def_md5sum): view_sql := $(view_sql)
 $(TOP_LEVEL)/build/stamps/view-$(view_table_name).$(view_def_md5sum):
@@ -44,12 +44,15 @@ $(TOP_LEVEL)/build/stamps/view-$(view_table_name).$(view_def_md5sum):
 	echo "$(view_sql)" > "$@.new"
 	mv -- "$@.new" "$@"
 
-$(TOP_LEVEL)/build/stamps/table-$(view_table_name):: $(patsubst %,$(TOP_LEVEL)/build/stamps/table-%,$(view_dep_tables))
+$(TOP_LEVEL)/build/stamps/table-$(view_table_name):: $(patsubst %,$(TOP_LEVEL)/build/stamps/table-%,$(view_table_deps))
+$(TOP_LEVEL)/build/stamps/table-$(view_table_name): PSQL_db := $(PSQL_db)
+$(TOP_LEVEL)/build/stamps/table-$(view_table_name): view_table_deps := $(view_table_deps)
 $(TOP_LEVEL)/build/stamps/table-$(view_table_name): view_table_name := $(view_table_name)
 $(TOP_LEVEL)/build/stamps/table-$(view_table_name): view_sql := $(view_sql)
 
 $(TOP_LEVEL)/build/stamps/table-$(view_table_name):: $(TOP_LEVEL)/build/stamps/view-$(view_table_name).$(view_def_md5sum)
 	@mkdir -p $(@D)
+	echo "view_table_deps=$(view_table_deps)"
 	$(MAKE) -s tabledrop-$(view_table_name)
 	$(PSQL) -c "CREATE MATERIALIZED VIEW $(view_table_name) AS $(view_sql)"
 	@touch "$@"
@@ -57,4 +60,5 @@ endif
 
 view_table_name =
 view_sql =
-view_dep_tables =
+view_table_deps =
+PSQL_db = GIS

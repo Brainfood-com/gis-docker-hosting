@@ -17,6 +17,7 @@ x-node-base: &_node-base
   command: ["app-npm", "gosu", "node", "npm", "run", "dev"]
   image: gis-dev-node
   networks:
+    app:
     localdev:
     nginx:
   restart: always
@@ -35,6 +36,30 @@ volumes:
   pgdata:
 
 services:
+  perm-postgresql:
+    build:
+      args:
+        - http_proxy
+      context: .
+      dockerfile: Dockerfile.postgresql
+      network: localdev_default
+      target: perm-postgres
+    #command: /sbin/my_init
+    env_file:
+      - ./.env.defaults
+    environment:
+      - PGDATA=/var/lib/postgresql/data
+    image: gis-postgresql-perm
+    labels:
+      - com.brainfood.docker.localdev.target_user=postgres
+      - com.brainfood.docker.localdev.tool.perm-pg_dump=pg_dump
+      - com.brainfood.docker.localdev.tool.perm-psql=psql
+    logging:
+      <<: *_logging
+    networks:
+      - app
+    volumes:
+      - /srv/docker/gis/perm-postgresql/data:/var/lib/perm-postgresql/data
   postgresql:
     build:
       args:
@@ -43,6 +68,10 @@ services:
       dockerfile: Dockerfile.postgresql
       network: localdev_default
     #command: /sbin/my_init
+    depends_on:
+      - perm-postgresql
+    env_file:
+      - ./.env.defaults
     environment:
       - PGDATA=/var/lib/postgresql/data
     image: gis-postgresql
@@ -102,6 +131,7 @@ services:
       - ./.env.defaults
     environment:
       - PG_USE_COPY=1
+      - OGR_ENABLE_PARTIAL_REPROJECTION=true
     image: gis-gdal
     labels:
       - com.brainfood.docker.localdev.target_pwd=relative
@@ -116,6 +146,16 @@ services:
       - app
     volumes:
       - .:/srv/app
+    working_dir: /srv/app
+
+  gis-api:
+    <<: *_node-base
+    environment:
+      VHOST_SUFFIX:
+      VIRTUAL_HOST: api.${VHOST_SUFFIX}
+    volumes:
+      - npm-cache:/home/node/.npm/_cacache
+      - ./gis-api:/srv/app
     working_dir: /srv/app
 
   web-frontend:
