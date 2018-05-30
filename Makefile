@@ -41,6 +41,12 @@ tabledrop-%::
 shp_data_file = data/lariac_buildings_2008.zip
 shp_table_name = lariac_buildings
 include rules.shp.mk
+index_table_name = lariac_buildings
+index_schema = CREATE INDEX lariac_buildings_expand_geometry ON lariac_buildings USING gist (ST_Expand(wkb_geometry, 0.001))
+include rules.index.mk
+index_table_name = lariac_buildings
+index_schema = CREATE INDEX lariac_buildings_ain ON lariac_buildings (ain)
+include rules.index.mk
 
 shp_data_file = data/tl_2017_06037_areawater.zip
 shp_table_name = tl_2017_06037_areawater
@@ -49,7 +55,6 @@ include rules.shp.mk
 shp_data_file = data/tl_2017_06037_roads.zip
 shp_table_name = tl_2017_06037_roads
 include rules.shp.mk
-
 index_table_name = tl_2017_06037_roads
 index_schema = CREATE INDEX itl_2017_06037_roads_fullname_like ON tl_2017_06037_roads USING gin (LOWER(fullname) gin_trgm_ops)
 include rules.index.mk
@@ -63,8 +68,9 @@ shp_table_name = tl_2017_us_state
 include rules.shp.mk
 
 view_table_name = sunset_road
-view_sql = SELECT DISTINCT * FROM tl_2017_06037_roads WHERE LOWER(fullname) LIKE '%sunset blvd'
+view_sql = SELECT * FROM tl_2017_06037_roads WHERE LOWER(fullname) LIKE '%sunset blvd'
 view_table_deps = tl_2017_06037_roads
+#view_materialized = true
 include rules.view.mk
 
 # another county?
@@ -77,13 +83,15 @@ include rules.view.mk
 # 124926 121508 124247 124930
 
 view_table_name = sunset_road_problems
-view_sql = SELECT DISTINCT * FROM sunset_road WHERE ogc_fid IN (135036, 131438, 124884, 124926, 121508, 124247, 124930)
+view_sql = SELECT * FROM sunset_road WHERE ogc_fid IN (135036, 131438, 124884, 124926, 121508, 124247, 124930)
 view_table_deps = sunset_road
+#view_materialized = true
 include rules.view.mk
 
 view_table_name = sunset_road_reduced
-view_sql = SELECT DISTINCT * FROM sunset_road WHERE ogc_fid NOT IN (SELECT ogc_fid FROM sunset_road_problems)
-view_table_deps = sunset_road_problems
+view_sql = SELECT * FROM sunset_road WHERE ogc_fid NOT IN (SELECT ogc_fid FROM sunset_road_problems)
+view_table_deps = sunset_road sunset_road_problems
+#view_materialized = true
 include rules.view.mk
 
 view_table_name = sunset_road_debug
@@ -93,6 +101,7 @@ view_sql = SELECT ST_LineMerge(ST_Transform(ST_ApproximateMedialAxis(ST_Transfor
 #view_sql = select st_straightskeleton(foo) as geom from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .0001))).geom as foo from sunset_road limit 1) as foo;
 #view_sql = select st_collect(st_approximatemedialaxis(foo)) as geom from (select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road limit 1 offset 1) as foo union select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road offset 3) as foo) as foo
 view_table_deps = sunset_road_reduced
+#view_materialized = true
 include rules.view.mk
 
 view_table_name = sunset_road_merged
@@ -103,11 +112,13 @@ view_sql = SELECT ST_LineMerge(ST_Transform(ST_ApproximateMedialAxis(ST_Transfor
 #view_sql = select st_straightskeleton(foo) as geom from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .0001))).geom as foo from sunset_road limit 1) as foo;
 #view_sql = select st_collect(st_approximatemedialaxis(foo)) as geom from (select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road limit 1 offset 1) as foo union select * from (select (st_dump(st_Buffer(st_collect(wkb_geometry), .00015))).geom as foo from sunset_road offset 3) as foo) as foo
 view_table_deps = sunset_road_reduced
+#view_materialized = true
 include rules.view.mk
 
 view_table_name = sunset_buildings
 view_sql = SELECT DISTINCT a.* from lariac_buildings a INNER JOIN sunset_road_reduced b ON ST_DWithin(a.wkb_geometry, b.wkb_geometry, 0.001)
 view_table_deps = lariac_buildings sunset_road_reduced
+view_materialized = true
 include rules.view.mk
 
 static_table_name = iiif
@@ -139,6 +150,43 @@ define static_table_schema
 endef
 static_table_deps = iiif
 include rules.static-table.mk
+
+static_table_name = iiif_overrides
+define static_table_schema
+(
+	iiif_override_id SERIAL PRIMARY KEY,
+	external_id TEXT UNIQUE
+)
+endef
+include rules.static-table.mk
+
+static_table_name = iiif_canvas_overrides
+define static_table_schema
+(
+	iiif_override_id INTEGER REFERENCES iiif_overrides(iiif_override_id) PRIMARY KEY,
+
+	iiif_canvas_override_source_id TEXT,
+
+	priority INTEGER,
+	notes TEXT,
+	point geometry(Point,4326),
+	UNIQUE(iiif_override_id, iiif_canvas_override_source_id)
+)
+endef
+static_table_deps = iiif_overrides
+include rules.static-table.mk
+
+view_table_name = canvas_overrides
+define view_sql
+SELECT
+  iiif_overrides.external_id,
+  iiif_canvas_overrides.*
+FROM
+  iiif_overrides JOIN iiif_canvas_overrides ON
+    iiif_overrides.iiif_override_id = iiif_canvas_overrides.iiif_override_id
+endef
+view_table_deps = iiif_overrides iiif_canvas_overrides
+include rules.view.mk
 
 static_table_name = iiif_manifest
 define static_table_schema
@@ -269,24 +317,115 @@ include rules.index.mk
 index_table_name = taxdata
 index_schema = CREATE INDEX taxdata_street_name ON taxdata(street_name)
 include rules.index.mk
+index_table_name = taxdata
+index_schema = CREATE INDEX taxdata_ain ON taxdata(ain)
+include rules.index.mk
 
 view_table_name = sunset_taxdata
 view_sql = SELECT * FROM taxdata a WHERE street_name = 'SUNSET BLVD'
 view_table_deps = taxdata
+#view_materialized = true
 include rules.view.mk
 
 view_table_name = sunset_taxdata_2017
 view_sql = SELECT * FROM sunset_taxdata WHERE roll_year = '2017'
 view_table_deps = sunset_taxdata
+#view_materialized = true
 include rules.view.mk
 
 view_table_name = sunset_taxdata_2017_buildings
 view_sql = SELECT b.* FROM sunset_taxdata_2017 a INNER JOIN lariac_buildings b ON a.ain::text = b.ain
 view_table_deps = sunset_taxdata_2017 lariac_buildings
+#view_materialized = true
 include rules.view.mk
 
 view_table_name = sunset_taxdata_buildings
 view_sql = SELECT DISTINCT b.* FROM sunset_taxdata a INNER JOIN lariac_buildings b ON a.ain::text = b.ain
-view_table_deps = sunset_taxdata_2017 lariac_buildings
+view_table_deps = sunset_taxdata lariac_buildings
+#view_materialized = true
 include rules.view.mk
+
+view_table_name = canvas
+define view_sql
+SELECT
+  can_base.external_id,
+  can_base.label,
+  canvas.*
+FROM
+  iiif can_base JOIN iiif_canvas canvas ON
+    can_base.iiif_id = canvas.iiif_id
+endef
+view_table_deps = iiif iiif_canvas
+include rules.view.mk
+
+view_table_name = sequence_canvas
+define view_sql
+SELECT
+  man_seq_assoc.iiif_id_from AS manifest_id,
+  man_seq_assoc.iiif_id_to AS sequence_id,
+  seq_can_assoc.sequence_num AS sequence_num,
+  canvas.*
+FROM
+  iiif man_base JOIN iiif_assoc man_seq_assoc ON
+    man_base.iiif_type_id = 'sc:Manifest'
+    AND
+    man_base.iiif_id = man_seq_assoc.iiif_id_from
+    AND
+    man_seq_assoc.iiif_assoc_type_id = 'sc:Sequence'
+  JOIN iiif_assoc seq_can_assoc ON
+    man_seq_assoc.iiif_id_to = seq_can_assoc.iiif_id_from
+    AND
+    seq_can_assoc.iiif_assoc_type_id = 'sc:Canvas'
+  JOIN canvas ON
+    seq_can_assoc.iiif_id_to = canvas.iiif_id
+endef
+view_table_deps = iiif iiif_assoc canvas
+include rules.view.mk
+
+view_table_name = range_canvas
+define view_sql
+SELECT
+  man_ran_assoc.iiif_id_from AS manifest_id,
+  man_ran_assoc.iiif_id_to AS range_id,
+  ran_can_assoc.sequence_num AS sequence_num,
+  canvas.*
+FROM
+  iiif man_base JOIN iiif_assoc man_ran_assoc ON
+    man_base.iiif_type_id = 'sc:Manifest'
+    AND
+    man_base.iiif_id = man_ran_assoc.iiif_id_from
+    AND
+    man_ran_assoc.iiif_assoc_type_id = 'sc:Range'
+  JOIN iiif_assoc ran_can_assoc ON
+    man_ran_assoc.iiif_id_to = ran_can_assoc.iiif_id_from
+    AND
+    ran_can_assoc.iiif_assoc_type_id = 'sc:Canvas'
+  JOIN canvas ON
+    ran_can_assoc.iiif_id_to = canvas.iiif_id
+endef
+view_table_deps = iiif iiif_assoc canvas
+include rules.view.mk
+
+view_table_name = canvas_geoposition_base
+define view_sql
+SELECT
+    range_canvas.manifest_id AS manifest_id,
+    range_canvas.range_id AS range_id,
+    (row_number() OVER (ORDER BY range_canvas.sequence_num) - 1)::float / (count(*) OVER () - 1)::float AS position,
+    (SELECT json_agg(json_build_object(
+      'iiif_canvas_override_source_id', iiif_canvas_override_source_id,
+      'priority', priority,
+      'notes', notes,
+      'point', ST_AsGeoJSON(point)
+    )) FROM canvas_overrides WHERE external_id = can_base.external_id) AS overrides,
+    can_base.label, can.*
+FROM
+  range_canvas JOIN iiif can_base ON
+    range_canvas.iiif_id = can_base.iiif_id
+  JOIN iiif_canvas can ON
+    can_base.iiif_id = can.iiif_id
+endef
+view_table_deps = range_canvas iiif iiif_canvas
+include rules.view.mk
+
 

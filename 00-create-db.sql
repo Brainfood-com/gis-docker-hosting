@@ -10,6 +10,8 @@ CREATE EXTENSION postgis_topology;
 CREATE EXTENSION postgis_sfcgal;
 CREATE EXTENSION postgres_fdw;
 CREATE EXTENSION pg_trgm;
+CREATE EXTENSION btree_gis;
+CREATE EXTENSION btree_gin;
 CREATE SERVER perm_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host 'perm-postgresql', port '5432', dbname 'perm');
 GRANT USAGE ON FOREIGN SERVER perm_server TO gis;
 
