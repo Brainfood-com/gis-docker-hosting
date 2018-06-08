@@ -17,11 +17,13 @@ postgis featuretype publish --workspace gis --datastore postgresql --table laria
 #layer modify --name lariac_buildings --defaultStyle polygon
 
 postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_06037_areawater
+postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_06037_edges
 postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_06037_roads
 postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_06_place
 postgis featuretype publish --workspace gis --datastore postgresql --table tl_2017_us_state
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_buildings
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_road
+postgis featuretype publish --workspace gis --datastore postgresql --table sunset_road_edge
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_road_problems
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_road_reduced
 postgis featuretype publish --workspace gis --datastore postgresql --table sunset_road_merged

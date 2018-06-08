@@ -48,6 +48,19 @@ index_table_name = lariac_buildings
 index_schema = CREATE INDEX lariac_buildings_ain ON lariac_buildings (ain)
 include rules.index.mk
 
+shp_data_file = data/tl_2017_06037_edges.zip
+shp_table_name = tl_2017_06037_edges
+include rules.shp.mk
+index_table_name = tl_2017_06037_edges
+index_schema = CREATE INDEX tl_2017_06037_edges_fullname_like ON tl_2017_06037_edges USING gin (LOWER(fullname) gin_trgm_ops)
+include rules.index.mk
+index_table_name = tl_2017_06037_edges
+index_schema = CREATE INDEX tl_2017_06037_edges_tfidr ON tl_2017_06037_edges (tfidr)
+include rules.index.mk
+index_table_name = tl_2017_06037_edges
+index_schema = CREATE INDEX tl_2017_06037_edges_tfidl ON tl_2017_06037_edges (tfidl)
+include rules.index.mk
+
 shp_data_file = data/tl_2017_06037_areawater.zip
 shp_table_name = tl_2017_06037_areawater
 include rules.shp.mk
@@ -56,7 +69,7 @@ shp_data_file = data/tl_2017_06037_roads.zip
 shp_table_name = tl_2017_06037_roads
 include rules.shp.mk
 index_table_name = tl_2017_06037_roads
-index_schema = CREATE INDEX itl_2017_06037_roads_fullname_like ON tl_2017_06037_roads USING gin (LOWER(fullname) gin_trgm_ops)
+index_schema = CREATE INDEX tl_2017_06037_roads_fullname_like ON tl_2017_06037_roads USING gin (LOWER(fullname) gin_trgm_ops)
 include rules.index.mk
 
 shp_data_file = data/tl_2017_06_place.zip
@@ -71,6 +84,25 @@ view_table_name = sunset_road
 view_sql = SELECT * FROM tl_2017_06037_roads WHERE LOWER(fullname) LIKE '%sunset blvd'
 view_table_deps = tl_2017_06037_roads
 #view_materialized = true
+include rules.view.mk
+
+view_table_name = sunset_road_edge
+define view_sql
+SELECT DISTINCT
+	b.*
+FROM
+	tl_2017_06037_edges a JOIN tl_2017_06037_edges b ON
+		(
+			b.tfidr IN (a.tfidr, a.tfidl)
+			OR
+			b.tfidl IN (a.tfidr, a.tfidl)
+		)
+		AND
+		b.roadflg = 'Y'
+WHERE
+	LOWER(a.fullname) LIKE '%sunset blvd'
+endef
+view_table_deps = tl_2017_06037_edges
 include rules.view.mk
 
 # another county?
@@ -345,11 +377,40 @@ view_table_deps = sunset_taxdata lariac_buildings
 #view_materialized = true
 include rules.view.mk
 
+view_table_name = manifest
+define view_sql
+SELECT
+  can_base.external_id,
+  can_base.label,
+  can_base.iiif_type_id,
+  manifest.*
+FROM
+  iiif can_base JOIN iiif_manifest manifest ON
+    can_base.iiif_id = manifest.iiif_id
+endef
+view_table_deps = iiif iiif_manifest
+include rules.view.mk
+
+view_table_name = range
+define view_sql
+SELECT
+  can_base.external_id,
+  can_base.label,
+  can_base.iiif_type_id,
+  range.*
+FROM
+  iiif can_base JOIN iiif_range range ON
+    can_base.iiif_id = range.iiif_id
+endef
+view_table_deps = iiif iiif_range
+include rules.view.mk
+
 view_table_name = canvas
 define view_sql
 SELECT
   can_base.external_id,
   can_base.label,
+  can_base.iiif_type_id,
   canvas.*
 FROM
   iiif can_base JOIN iiif_canvas canvas ON
@@ -385,22 +446,13 @@ include rules.view.mk
 view_table_name = range_canvas
 define view_sql
 SELECT
-  man_ran_assoc.iiif_id_from AS manifest_id,
-  man_ran_assoc.iiif_id_to AS range_id,
+  ran_can_assoc.iiif_id_from AS range_id,
   ran_can_assoc.sequence_num AS sequence_num,
   canvas.*
 FROM
-  iiif man_base JOIN iiif_assoc man_ran_assoc ON
-    man_base.iiif_type_id = 'sc:Manifest'
-    AND
-    man_base.iiif_id = man_ran_assoc.iiif_id_from
-    AND
-    man_ran_assoc.iiif_assoc_type_id = 'sc:Range'
-  JOIN iiif_assoc ran_can_assoc ON
-    man_ran_assoc.iiif_id_to = ran_can_assoc.iiif_id_from
-    AND
+  iiif_assoc ran_can_assoc JOIN canvas ON
     ran_can_assoc.iiif_assoc_type_id = 'sc:Canvas'
-  JOIN canvas ON
+    AND
     ran_can_assoc.iiif_id_to = canvas.iiif_id
 endef
 view_table_deps = iiif iiif_assoc canvas
@@ -409,7 +461,6 @@ include rules.view.mk
 view_table_name = canvas_geoposition_base
 define view_sql
 SELECT
-    range_canvas.manifest_id AS manifest_id,
     range_canvas.range_id AS range_id,
     (row_number() OVER (ORDER BY range_canvas.sequence_num) - 1)::float / (count(*) OVER () - 1)::float AS position,
     (SELECT json_agg(json_build_object(
