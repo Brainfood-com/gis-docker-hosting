@@ -576,7 +576,7 @@ FROM
   JOIN iiif_canvas can ON
     can_base.iiif_id = can.iiif_id
 endef
-view_table_deps = range_canvas iiif iiif_canvas
+view_table_deps = range_canvas iiif iiif_canvas canvas_overrides
 include rules.view.mk
 
 
