@@ -235,8 +235,8 @@ define static_table_schema
 (
 	iiif_override_id INTEGER REFERENCES iiif_overrides(iiif_override_id) PRIMARY KEY,
 
-	exclude BOOLEAN NOT NULL DEFAULT FALSE,
-	hole BOOLEAN NOT NULL DEFAULT FALSE
+	exclude BOOLEAN DEFAULT FALSE,
+	hole BOOLEAN DEFAULT FALSE
 )
 endef
 static_table_deps = iiif_overrides
@@ -566,9 +566,8 @@ SELECT
     (SELECT json_agg(json_build_object(
       'iiif_canvas_override_source_id', iiif_canvas_override_source_id,
       'priority', priority,
-      'notes', notes,
       'point', ST_AsGeoJSON(point)
-    )) FROM canvas_overrides WHERE external_id = can_base.external_id) AS overrides,
+    )) FROM canvas_point_overrides WHERE external_id = can_base.external_id) AS overrides,
     can_base.label, can.*
 FROM
   range_canvas JOIN iiif can_base ON
