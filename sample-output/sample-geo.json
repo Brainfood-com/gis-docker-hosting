@@ -1,0 +1,61 @@
+{
+    "type": "FeatureCollection",
+    "metadata": {
+        "imagecount": 294,
+        "date": "1975/07/23",
+        "starttime": "14:01:00",
+        "stoptime": "16:15:00",
+        "startintersection": "North Fairfax Avenue / Sunset Boulevard",
+        "stopintersection": "North Vincente Boulevard / Sunset Boulevard",
+        "photographer": "John Doe",
+        "driver": "Jane Roe",
+        "subjectstreet": "Sunset Boulevard",
+        "camerainfo": "35mm Leica DSLR"
+    },
+    "features": [{
+        "type": "Feature",
+        "geometry": {
+            "type": "Point",
+            "coordinates": [102.0, 0.5]
+        },
+        "properties": {
+            "filename": "https://iiif.org/etc/etc/default.jpg",
+            "date": "1975/07/23",
+            "time": "15:03:00",
+            "bearing": 75.3,
+            "distance": 50.2,
+            "streetview": "https://maps.google.com/streetview/somethingorother",
+            "streetaddress": "123 Sunset, Los Angeles",
+            "structureextant": true,
+            "yearbuilt": 1951,
+            "zoning": "Z",
+            "ocr": [
+                "99 Cents",
+                "Sale",
+                "No parking"
+            ],
+            "tags": [
+                "a tag",
+                "another tag"
+            ],
+            "colormetadata": {
+                "hsv": "002233",
+                "grey": "20"
+            },
+            "taxlots": [
+                {
+                    "ain": "A100001",
+                    "yearbuilt": "1951"
+                },
+                {
+                    "ain": "A100002",
+                    "yearbuilt": "1951"
+                },
+                {
+                    "ain": "A100003",
+                    "yearbuilt": "1969"
+                }
+            ]
+        }
+    }]
+}
