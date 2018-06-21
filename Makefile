@@ -183,13 +183,51 @@ endef
 static_table_deps = iiif
 include rules.static-table.mk
 
+static_table_name = iiif_tags
+define static_table_schema
+(
+	iiif_tag_id SERIAL PRIMARY KEY,
+
+	iiif_type_id TEXT,
+	tag TEXT,
+	UNIQUE (iiif_type_id, tag)
+)
+endef
+include rules.static-table.mk
+
 static_table_name = iiif_overrides
 define static_table_schema
 (
 	iiif_override_id SERIAL PRIMARY KEY,
-	external_id TEXT UNIQUE
+	external_id TEXT UNIQUE,
+	notes TEXT
 )
 endef
+include rules.static-table.mk
+
+static_table_name = iiif_overrides_tags
+define static_table_schema
+(
+	iiif_override_id INTEGER REFERENCES iiif_overrides(iiif_override_id),
+	iiif_tag_id INTEGER REFERENCES iiif_tags(iiif_tag_id),
+	sequence_num NUMERIC,
+	PRIMARY KEY(iiif_override_id, iiif_tag_id)
+)
+endef
+static_table_deps = iiif_overrides iiif_tags
+include rules.static-table.mk
+
+static_table_name = iiif_range_overrides
+define static_table_schema
+(
+	iiif_override_id INTEGER REFERENCES iiif_overrides(iiif_override_id) PRIMARY KEY,
+
+	fov_angle INTEGER,
+	fov_depth INTEGER,
+	fov_orientation TEXT CHECK (fov_orientation IN ('left', 'right'))
+)
+endef
+static_table_deps = iiif_overrides
 include rules.static-table.mk
 
 static_table_name = iiif_canvas_overrides
@@ -197,27 +235,74 @@ define static_table_schema
 (
 	iiif_override_id INTEGER REFERENCES iiif_overrides(iiif_override_id) PRIMARY KEY,
 
+	exclude BOOLEAN DEFAULT FALSE,
+	hole BOOLEAN DEFAULT FALSE
+)
+endef
+static_table_deps = iiif_overrides
+include rules.static-table.mk
+
+static_table_name = iiif_canvas_point_overrides
+define static_table_schema
+(
+	iiif_override_id INTEGER REFERENCES iiif_overrides(iiif_override_id),
+
 	iiif_canvas_override_source_id TEXT,
 
 	priority INTEGER,
-	notes TEXT,
 	point geometry(Point,4326),
+	PRIMARY KEY(iiif_override_id, iiif_canvas_override_source_id),
 	UNIQUE(iiif_override_id, iiif_canvas_override_source_id)
 )
 endef
 static_table_deps = iiif_overrides
 include rules.static-table.mk
 
+view_table_name = range_overrides
+define view_sql
+SELECT
+  iiif.iiif_id,
+  iiif_overrides.external_id,
+  iiif_overrides.notes,
+  iiif_range_overrides.*
+FROM
+  iiif JOIN iiif_overrides ON
+    iiif.external_id = iiif_overrides.external_id
+  JOIN iiif_range_overrides ON
+    iiif_overrides.iiif_override_id = iiif_range_overrides.iiif_override_id
+endef
+view_table_deps = iiif_overrides iiif_range_overrides
+include rules.view.mk
+
 view_table_name = canvas_overrides
 define view_sql
 SELECT
+  iiif.iiif_id,
   iiif_overrides.external_id,
+  iiif_overrides.notes,
   iiif_canvas_overrides.*
 FROM
-  iiif_overrides JOIN iiif_canvas_overrides ON
+  iiif JOIN iiif_overrides ON
+    iiif.external_id = iiif_overrides.external_id
+  JOIN iiif_canvas_overrides ON
     iiif_overrides.iiif_override_id = iiif_canvas_overrides.iiif_override_id
 endef
 view_table_deps = iiif_overrides iiif_canvas_overrides
+include rules.view.mk
+
+view_table_name = canvas_point_overrides
+define view_sql
+SELECT
+  iiif.iiif_id,
+  iiif_overrides.external_id,
+  iiif_canvas_point_overrides.*
+FROM
+  iiif JOIN iiif_overrides ON
+    iiif.external_id = iiif_overrides.external_id
+  JOIN iiif_canvas_point_overrides ON
+    iiif_overrides.iiif_override_id = iiif_canvas_point_overrides.iiif_override_id
+endef
+view_table_deps = iiif iiif_overrides iiif_canvas_point_overrides
 include rules.view.mk
 
 static_table_name = iiif_manifest
@@ -377,6 +462,21 @@ view_table_deps = sunset_taxdata lariac_buildings
 #view_materialized = true
 include rules.view.mk
 
+view_table_name = collection
+define view_sql
+SELECT
+  can_base.iiif_id,
+  can_base.external_id,
+  can_base.label,
+  can_base.iiif_type_id
+FROM
+  iiif can_base
+WHERE
+  can_base.iiif_type_id = 'sc:Collection'
+endef
+view_table_deps = iiif
+include rules.view.mk
+
 view_table_name = manifest
 define view_sql
 SELECT
@@ -466,9 +566,8 @@ SELECT
     (SELECT json_agg(json_build_object(
       'iiif_canvas_override_source_id', iiif_canvas_override_source_id,
       'priority', priority,
-      'notes', notes,
       'point', ST_AsGeoJSON(point)
-    )) FROM canvas_overrides WHERE external_id = can_base.external_id) AS overrides,
+    )) FROM canvas_point_overrides WHERE external_id = can_base.external_id) AS overrides,
     can_base.label, can.*
 FROM
   range_canvas JOIN iiif can_base ON
@@ -476,7 +575,7 @@ FROM
   JOIN iiif_canvas can ON
     can_base.iiif_id = can.iiif_id
 endef
-view_table_deps = range_canvas iiif iiif_canvas
+view_table_deps = range_canvas iiif iiif_canvas canvas_overrides
 include rules.view.mk
 
 
