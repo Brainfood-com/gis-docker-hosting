@@ -20,4 +20,6 @@ build:
 pull:
 prune:
 
+include defs.tl.mk
+
 .PHONY: clean build pull

@@ -2,7 +2,7 @@
 FROM postgres:10.3 AS postgres-base
 
 RUN apt-get update \
-        && apt-get install --no-install-suggests --no-install-recommends -y less postgresql-10-postgis-2.4 postgresql-10-postgis-2.4-scripts\
+        && apt-get install --no-install-suggests --no-install-recommends -y less postgresql-10-postgis-2.4 postgresql-10-postgis-2.4-scripts postgresql-10-pgrouting\
         && find /var/lib/apt/lists /var/cache/apt/archives -type f -delete \
         && true
 

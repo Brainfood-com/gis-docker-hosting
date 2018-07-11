@@ -8,6 +8,7 @@ override CURRENT_MAKEFILE_DIR := $(dir $(firstword $(MAKEFILE_LIST)))
 empty :=
 space := $(empty) $(empty)
 comma := $(empty),$(empty)
+colon := $(empty):$(empty)
 open_paren := $(empty)($(empty)
 close_paren := $(empty))$(empty)
 
@@ -26,6 +27,10 @@ include gdal.mk
 include geoserver.mk
 
 # This is where things start happening
+tl_year = 2017
+tl_key = 06037
+tl_type = edges
+$(call tl_rules)
 
 table-%: $(TOP_LEVEL)/build/stamps/table-%
 tabledropdeps-%::
@@ -61,6 +66,232 @@ index_table_name = tl_2017_06037_edges
 index_schema = CREATE INDEX tl_2017_06037_edges_tfidl ON tl_2017_06037_edges (tfidl)
 include rules.index.mk
 
+function_name = gisapp_nearest_edge
+define function_body
+-- explain
+(point geometry) RETURNS integer
+AS
+$$body$$
+WITH fast_query AS (
+	SELECT
+		wkb_geometry,
+		ogc_fid
+	FROM
+		tl_2017_06037_edges
+	ORDER BY
+		wkb_geometry <#> $$1
+	LIMIT 30
+)
+SELECT
+	ogc_fid
+FROM
+	fast_query
+WHERE
+	$$1 IS NOT NULL
+ORDER BY
+	ST_Distance(wkb_geometry, $$1)
+LIMIT 1
+$$body$$
+immutable
+language sql;
+endef
+function_table_deps = tl_2017_06037_edges
+include rules.function.mk
+
+view_table_name = tl_2017_06037_edges_gis_routing
+view_materialized = true
+define view_sql
+SELECT
+	a.ogc_fid AS id,
+	a.tnidf::integer AS source,
+	a.tnidt::integer AS target,
+	CASE
+		WHEN gis_drivable THEN ST_Length(ST_Transform(a.wkb_geometry, 4326)::geography)
+		ELSE -1
+	END::float8 AS cost,
+	ST_X(ST_StartPoint(a.wkb_geometry)) AS x1,
+	ST_Y(ST_StartPoint(a.wkb_geometry)) AS y1,
+	ST_X(ST_EndPoint(a.wkb_geometry)) AS x2,
+	ST_Y(ST_EndPoint(a.wkb_geometry)) AS y2
+FROM
+	(
+		SELECT
+			CASE
+				WHEN hydroflg = 'Y' THEN false
+				WHEN railflg = 'Y' THEN false
+				WHEN roadflg = 'Y' THEN true
+				ELSE false
+			END AS gis_drivable,
+			*
+		FROM
+			tl_2017_06037_edges
+
+	) a
+WHERE
+	tfidl IS NOT NULL AND tfidr IS NOT NULL
+endef
+view_table_deps = tl_2017_06037_edges
+include rules.view.mk
+
+static_table_name = route_cache
+define static_table_schema
+(
+	start_point geometry(Point, 4326),
+	end_point geometry(Point, 4326),
+	route geometry(LineString, 4326),
+	PRIMARY KEY(start_point, end_point)
+)
+endef
+include rules.static-table.mk
+index_table_name = iiif
+index_schema = CREATE INDEX route_cache_start_point ON iiif USING gist(start_point)
+include rules.index.mk
+index_table_name = iiif
+index_schema = CREATE INDEX route_cache_end_point ON iiif USING gist(end_point)
+include rules.index.mk
+
+function_name = route_point_data
+define function_body
+(point geometry(Point, 4326)) RETURNS TABLE(
+	edge bigint,
+	from_node bigint,
+	to_node bigint,
+	cost double precision,
+	percentage double precision,
+	point geometry
+)
+AS
+$$body$$
+WITH
+phase_1 AS (
+	SELECT gisapp_nearest_edge(point) AS edge
+)
+SELECT
+	edges.ogc_fid::bigint AS edge,
+	edges.tnidf::bigint AS from_node,
+	edges.tnidt::bigint AS to_node,
+	ST_Length(ST_Transform(edges.wkb_geometry, 4326)::geography) AS cost,
+	ST_LineLocatePoint(edges.wkb_geometry, point) AS percentage,
+	ST_ClosestPoint(edges.wkb_geometry, point) AS point
+FROM
+	tl_2017_06037_edges edges
+WHERE
+	edges.ogc_fid = (SELECT edge FROM phase_1)
+$$body$$
+language sql;
+endef
+function_table_deps = tl_2017_06037_edges
+include rules.function.mk
+
+function_name = route_build
+define function_body
+(start_at geometry(Point, 4326), end_at geometry(Point, 4326)) RETURNS geometry
+AS
+$$body$$
+WITH
+param_start AS (SELECT * FROM route_point_data(start_at)),
+param_end AS (SELECT * FROM route_point_data(end_at)),
+dijkstra AS (
+	SELECT
+		path_seq,
+		node,
+		edge,
+		cost
+	FROM
+		pgr_dijkstra('select * from tl_2017_06037_edges_gis_routing', (SELECT from_node FROM param_start), (SELECT to_node FROM param_end), directed:=false)
+--		pgr_astar('select * from tl_2017_06037_edges_gis_routing', (SELECT from_node FROM param_start), (SELECT to_node FROM param_end), directed:=false)
+	WHERE
+		edge != -1
+),
+first_dijkstra_row AS (
+	SELECT * FROM dijkstra ORDER BY path_seq LIMIT 1
+),
+last_dijkstra_row AS (
+	SELECT * FROM dijkstra ORDER BY path_seq DESC LIMIT 1
+),
+include_start AS (
+	SELECT
+		-1 AS path_seq,
+		to_node AS node,
+		edge,
+		cost
+	FROM
+		param_start
+	WHERE NOT EXISTS (SELECT path_seq FROM dijkstra JOIN param_start ON dijkstra.edge = param_start.edge)
+),
+include_end AS (
+	SELECT
+		(SELECT max(path_seq) + 1 FROM dijkstra) AS path_seq,
+		from_node AS node,
+		edge,
+		cost
+	FROM
+		param_end
+	WHERE NOT EXISTS (SELECT path_seq FROM dijkstra JOIN param_end ON dijkstra.edge = param_end.edge)
+),
+all_edges AS (
+	SELECT * FROM include_start
+	UNION
+	SELECT * FROM dijkstra
+	UNION
+	SELECT * FROM include_end
+),
+join_geom AS (
+	SELECT
+		a.*,
+		CASE
+			WHEN a.node = edges.tnidf THEN edges.wkb_geometry
+			ELSE ST_Reverse(edges.wkb_geometry)
+		END AS geom
+	FROM
+		all_edges a JOIN tl_2017_06037_edges edges ON
+			a.edge = edges.ogc_fid
+	ORDER BY
+		a.path_seq
+),
+build_line AS (
+	SELECT ST_MakeLine((SELECT ST_MakeLine(geom) FROM join_geom)) AS line
+)
+SELECT
+	ST_LineSubstring(a.line, ST_LineLocatePoint(a.line, param_start.point), ST_LineLocatePoint(a.line, param_end.point)) AS route
+FROM
+	build_line a,
+	param_start,
+	param_end
+$$body$$
+language sql;
+endef
+function_table_deps = route_point_data tl_2017_06037_edges
+include rules.function.mk
+
+# TODO: Split first and last edges if the points are in the middle
+function_name = plan_route
+define function_body
+(start_at geometry(Point, 4326), end_at geometry(Point, 4326)) RETURNS geometry(LineString, 4326)
+AS
+$$body$$
+WITH
+new_row AS (
+	INSERT INTO route_cache (start_point, end_point, route)
+	SELECT
+		start_at,
+		end_at,
+		route_build(start_at, end_at) AS route
+	WHERE
+		NOT EXISTS (SELECT route FROM route_cache WHERE start_point = start_at AND end_point = end_at)
+	ON CONFLICT DO NOTHING
+	RETURNING route
+)
+SELECT route FROM new_row
+UNION
+SELECT route FROM route_cache WHERE start_point = start_at AND end_point = end_at
+$$body$$
+language sql;
+endef
+function_table_deps = tl_2017_06037_edges plan_point_data
+include rules.function.mk
+
+
 shp_data_file = data/tl_2017_06037_areawater.zip
 shp_table_name = tl_2017_06037_areawater
 include rules.shp.mk
@@ -81,17 +312,34 @@ shp_table_name = tl_2017_us_state
 include rules.shp.mk
 
 view_table_name = sunset_road
-view_sql = SELECT * FROM tl_2017_06037_roads WHERE LOWER(fullname) LIKE '%sunset blvd'
+view_sql = SELECT * FROM tl_2017_06037_roads WHERE LOWER(fullname) SIMILAR TO '%(sunset blvd|w cesar e chavez ave)'
 view_table_deps = tl_2017_06037_roads
 #view_materialized = true
 include rules.view.mk
 
-view_table_name = sunset_road_edge
+view_table_name = sunset_road_edges
+define view_sql
+SELECT *
+FROM
+	tl_2017_06037_edges
+WHERE
+	(
+		LOWER(fullname) SIMILAR TO '%(sunset blvd|w cesar e chavez ave)'
+		AND
+		tlid NOT IN (141615850, 141615852, 141615860, 141618155)
+	)
+	OR
+	tlid IN (142718688, 241139227, 142718318, 142683751)
+endef
+view_table_deps = tl_2017_06037_edges
+include rules.view.mk
+
+view_table_name = sunset_road_edges_connected
 define view_sql
 SELECT DISTINCT
 	b.*
 FROM
-	tl_2017_06037_edges a JOIN tl_2017_06037_edges b ON
+	sunset_road_edges a JOIN tl_2017_06037_edges b ON
 		(
 			b.tfidr IN (a.tfidr, a.tfidl)
 			OR
@@ -99,10 +347,8 @@ FROM
 		)
 		AND
 		b.roadflg = 'Y'
-WHERE
-	LOWER(a.fullname) LIKE '%sunset blvd'
 endef
-view_table_deps = tl_2017_06037_edges
+view_table_deps = tl_2017_06037_edges sunset_road_edges
 include rules.view.mk
 
 # another county?
@@ -578,4 +824,71 @@ endef
 view_table_deps = range_canvas iiif iiif_canvas canvas_overrides
 include rules.view.mk
 
+view_table_name = range_canvas_routing_base
+define view_sql
+WITH
+road AS (
+	SELECT st_linemerge(st_collect(geom)) AS geom FROM sunset_road_merged
+),
+road_meta AS (
+	SELECT
+		ST_StartPoint(road.geom) AS start_point,
+		gisapp_nearest_edge(ST_StartPoint(road.geom)) AS start_edge,
+		ST_EndPoint(road.geom) AS end_point,
+		gisapp_nearest_edge(ST_EndPoint(road.geom)) AS end_edge
+	FROM
+		road
+),
+canvas_point_override AS (
+	SELECT
+		iiif.iiif_id,
+		canvas_point_overrides.point,
+		gisapp_nearest_edge(canvas_point_overrides.point) AS edge
+	FROM
+		iiif JOIN canvas_point_overrides ON
+			iiif.external_id = canvas_point_overrides.external_id
+	GROUP BY
+		iiif.iiif_id,
+		canvas_point_overrides.point
+),
+canvas_range_grouping AS (
+	SELECT
+		a.range_id,
+		a.iiif_id,
+		a.sequence_num,
+		b.point,
+		c.exclude,
+		count(b.point) OVER (PARTITION BY c.exclude IS NULL OR c.exclude = false, a.range_id ORDER BY a.sequence_num) AS forward,
+		count(b.point) OVER (PARTITION BY c.exclude IS NULL OR c.exclude = false, a.range_id ORDER BY a.sequence_num DESC) AS reverse,
+		percent_rank() OVER (PARTITION BY c.exclude IS NULL OR c.exclude = false, a.range_id, count(b.point) ORDER BY a.sequence_num) start_rank,
+		cume_dist() OVER (PARTITION BY c.exclude IS NULL OR c.exclude = false, a.range_id, count(b.point) ORDER BY a.sequence_num) other_rank
+	FROM
+		range_canvas a LEFT JOIN canvas_point_overrides b ON
+			a.external_id = b.external_id
+		LEFT JOIN canvas_overrides c ON
+			a.iiif_id = c.iiif_id
+	GROUP BY
+		a.range_id,
+		a.iiif_id,
+		c.exclude,
+		a.sequence_num,
+		b.point
+)
+SELECT
+	canvas_range_grouping.*
+--	COALESCE(first_value(canvas_range_grouping.point) OVER (PARTITION BY canvas_range_grouping.reverse ORDER BY canvas_range_grouping.sequence_num DESC), (SELECT end_point FROM road_meta)) AS end_point,
+--	COALESCE(first_value(canvas_range_grouping.point) OVER (PARTITION BY canvas_range_grouping.forward ORDER BY canvas_range_grouping.sequence_num), (SELECT start_point FROM road_meta)) AS start_point
+FROM
+	canvas_range_grouping
+ORDER BY
+	sequence_num
+endef
+view_table_deps = range_canvas iiif canvas_point_overrides canvas_overrides gisapp_nearest_edge
+include rules.view.mk
 
+PHONY: tableimport
+
+configure-geoserver: build/stamps/configure-geoserver
+build/stamps/configure-geoserver: init-geoserver.gs-shell
+	./gis.sh gs-shell --cmdfile init-geoserver.gs-shell
+	touch $@
