@@ -288,7 +288,7 @@ SELECT route FROM route_cache WHERE start_point = start_at AND end_point = end_a
 $$body$$
 language sql;
 endef
-function_table_deps = tl_2017_06037_edges plan_point_data
+function_table_deps = tl_2017_06037_edges route_build route_cache
 include rules.function.mk
 
 
