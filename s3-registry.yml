@@ -20,8 +20,8 @@ storage:
   cache:
     blobdescriptor: "inmemory"
   s3:
-    accesskey: "AKIAIIIDCEH6TZ6HOXTQ"
-    secretkey: "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"
+    accesskey: "${accesskey}"
+    secretkey: "${secretkey}"
     region: "${region}"
     bucket: "${bucket}"
 http:
