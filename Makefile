@@ -143,11 +143,11 @@ define static_table_schema
 )
 endef
 include rules.static-table.mk
-index_table_name = iiif
-index_schema = CREATE INDEX route_cache_start_point ON iiif USING gist(start_point)
+index_table_name = route_cache
+index_schema = CREATE INDEX route_cache_start_point ON route_cache USING gist(start_point)
 include rules.index.mk
-index_table_name = iiif
-index_schema = CREATE INDEX route_cache_end_point ON iiif USING gist(end_point)
+index_table_name = route_cache
+index_schema = CREATE INDEX route_cache_end_point ON route_cache USING gist(end_point)
 include rules.index.mk
 
 function_name = route_point_data
