@@ -30,7 +30,7 @@ include geoserver.mk
 tl_year = 2017
 tl_key = 06037
 tl_type = edges
-$(call tl_rules)
+#$(call tl_rules)
 
 table-%: $(TOP_LEVEL)/build/stamps/table-%
 tabledropdeps-%::
