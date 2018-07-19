@@ -15,12 +15,32 @@ resource "aws_instance" "web" {
   subnet_id = "subnet-7d26cd34"
 
   root_block_device {
-    volume_size = 20
+    volume_size = 50
   }
 
   tags {
     Name = "GIS IIIF"
   }
+}
+
+data "aws_route53_zone" "hostdomain" {
+  name         = "brnfd.com."
+}
+
+resource "aws_route53_record" "gisapp" {
+  zone_id = "${data.aws_route53_zone.hostdomain.zone_id}"
+  name    = "gis-app.${data.aws_route53_zone.hostdomain.name}"
+  type    = "A"
+  ttl     = "300"
+  records = ["${aws_eip.live.public_ip}"]
+}
+
+resource "aws_route53_record" "gisappwild" {
+  zone_id = "${data.aws_route53_zone.hostdomain.zone_id}"
+  name    = "*.gis-app.${data.aws_route53_zone.hostdomain.name}"
+  type    = "A"
+  ttl     = "300"
+  records = ["${aws_eip.live.public_ip}"]
 }
 
 resource "aws_eip" "live" {
@@ -31,9 +51,39 @@ resource "aws_eip" "live" {
 data "template_file" "registry" {
   template = "${file("./s3-registry.yml")}"
   vars = {
+    accesskey = "${aws_iam_access_key.dockerreg.id}"
+    secretkey = "${aws_iam_access_key.dockerreg.secret}"
     region = "us-west-2"
     bucket = "gisiiif-docker"
   }
+}
+
+resource "aws_iam_user" "dockerreg" {
+  name = "dockerreg"
+}
+
+resource "aws_iam_access_key" "dockerreg" {
+  user = "${aws_iam_user.dockerreg.name}"
+}
+
+resource "aws_iam_user_policy" "dockerreg_ro" {
+  name = "gisapps3"
+  user = "${aws_iam_user.dockerreg.name}"
+
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "s3:*"
+      ],
+      "Effect": "Allow",
+      "Resource": "*"
+    }
+  ]
+}
+EOF
 }
 
 resource "null_resource" "preparation" {
@@ -66,9 +116,14 @@ resource "null_resource" "preparation" {
       "sudo chown -R admin.admin /srv/gisapp",
       "mkdir ~/.aws",
       "echo '[default]' > ~/.aws/credentials",
-      "echo 'aws_access_key_id = AKIAIIIDCEH6TZ6HOXTQ' >> ~/.aws/credentials",
-      "echo 'aws_secret_access_key = 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' >> ~/.aws/credentials",
+      "echo 'aws_access_key_id = ${aws_iam_access_key.dockerreg.id}' >> ~/.aws/credentials",
+      "echo 'aws_secret_access_key = ${aws_iam_access_key.dockerreg.secret}' >> ~/.aws/credentials",
     ]
+  }
+
+  provisioner "file" {
+    content = "${data.template_file.registry.rendered}"
+    destination = "/srv/gisapp/registry.yml"
   }
 
   provisioner "file" {
@@ -81,14 +136,10 @@ resource "null_resource" "preparation" {
     destination = "~/.ssh/id_rsa.pub"
   }
 
-  provisioner "file" {
-    content = "${data.template_file.registry.rendered}"
-    destination = "/srv/gisapp/registry.yml"
-  }
-
   provisioner "remote-exec" {
     inline = [
       # Set up the application
+#      "ssh-keygen -q -t rsa -f ~/.ssh/id_rsa -N '' -C for_git_checkout",
       "sudo mv /srv/gisapp/registry.yml /etc/registry.yml",
       "sudo /etc/init.d/docker start",
       "docker run -d -p 80:5000 --detach --volume /etc/registry.yml:/etc/docker/registry/config.yml:ro --network host registry",
@@ -110,8 +161,10 @@ resource "null_resource" "preparation" {
 
   provisioner "remote-exec" {
     inline = [
+      "while [ $(docker ps -a | grep nexus3_nexus_1 | grep healthy | wc -l) -eq 0 ]; do echo 'waiting for localdev'; sleep 1; done",
       "cd /srv/gisapp && ./gis.sh compose dev build",
       "cd /srv/gisapp && ./gis.sh compose dev up -d",
+      "while [ $(docker ps -a | grep gis_postgresql_1 | grep healthy | wc -l) -eq 0 ]; do echo 'waiting for postgres'; sleep 1; done",
       "cd /srv/gisapp && make -j3 tableimport",
     ]
   }
