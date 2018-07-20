@@ -58,6 +58,9 @@ shp_data_file = data/tl_2017_06037_edges.zip
 shp_table_name = tl_2017_06037_edges
 include rules.shp.mk
 index_table_name = tl_2017_06037_edges
+index_schema = ALTER TABLE tl_2017_06037_edges ALTER COLUMN wkb_geometry TYPE geometry(LineString,4326) USING ST_GeometryN(wkb_geometry, 1)
+include rules.index.mk
+index_table_name = tl_2017_06037_edges
 index_schema = CREATE INDEX tl_2017_06037_edges_fullname_like ON tl_2017_06037_edges USING gin (LOWER(fullname) gin_trgm_ops)
 include rules.index.mk
 index_table_name = tl_2017_06037_edges
