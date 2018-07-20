@@ -165,7 +165,7 @@ resource "null_resource" "preparation" {
       "cd /srv/gisapp && ./gis.sh compose dev build",
       "cd /srv/gisapp && ./gis.sh compose dev up -d",
       "while [ $(docker ps -a | grep gis_postgresql_1 | grep healthy | wc -l) -eq 0 ]; do echo 'waiting for postgres'; sleep 1; done",
-      "cd /srv/gisapp && make -j3 tableimport",
+      "cd /srv/gisapp && make -j3 tableimport iiif-import",
     ]
   }
 }
