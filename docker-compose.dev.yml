@@ -171,3 +171,21 @@ services:
       - .:/srv/app
       - ./gis-frontend:/srv/app/git-frontend
     working_dir: /srv/app/git-frontend
+
+  node:
+    <<: *_node-base
+    command: ["sleep", "infinity"]
+    depends_on:
+      - postgresql
+    environment:
+      GIS_BUILD_TARGET:
+      VHOST_SUFFIX:
+    labels:
+      - com.brainfood.docker.localdev.target_pwd=relative
+      - com.brainfood.docker.localdev.target_user=node
+      - com.brainfood.docker.localdev.tool.npm
+      - com.brainfood.docker.localdev.tool.gis-iiif-loader=/srv/app/gis-iiif-loader/iiif-loader.js
+    volumes:
+      - npm-cache:/home/node/.npm/_cacache
+      - .:/srv/app
+    working_dir: /srv/app

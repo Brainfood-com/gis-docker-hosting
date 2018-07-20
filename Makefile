@@ -13,6 +13,7 @@ open_paren := $(empty)($(empty)
 close_paren := $(empty))$(empty)
 
 default:
+default: tableimport configure-geoserver
 import:
 prune:
 
@@ -886,9 +887,33 @@ endef
 view_table_deps = range_canvas iiif canvas_point_overrides canvas_overrides gisapp_nearest_edge
 include rules.view.mk
 
-PHONY: tableimport
+PHONY: tableimport configure-geoserver import-tables dump-tables iiif-import
 
-configure-geoserver: build/stamps/configure-geoserver
-build/stamps/configure-geoserver: init-geoserver.gs-shell
+iiif_json_files := $(shell find media.getty.edu/ -name '*.json')
+iiif_tables = iiif iiif_metadata iiif_assoc iiif_manifest iiif_range iiif_canvas
+iiif-import: $(iiif_json_files) $(patsubst %,$(TOP_LEVEL)/build/stamps/table-%,$(iiif_tables))
+	./gis.sh gis-iiif-loader $(iiif_json_files)
+
+geoserver_tables := $(shell sed -n 's/^postgis featuretype publish --workspace gis --datastore postgresql --table \(.*\)/\1/p' init-geoserver.gs-shell)
+
+configure-geoserver: $(TOP_LEVEL)/build/stamps/configure-geoserver
+$(TOP_LEVEL)/build/stamps/configure-geoserver: init-geoserver.gs-shell $(patsubst %,$(TOP_LEVEL)/build/stamps/table-%,$(geoserver_tables))
 	./gis.sh gs-shell --cmdfile init-geoserver.gs-shell
 	touch $@
+
+tables_to_dump = iiif_overrides iiif_canvas_overrides iiif_canvas_point_overrides iiif_range_overrides iiif_tags iiif_overrides_tags
+
+dump-tables: $(patsubst %,dump-table.%,$(tables_to_dump))
+
+$(patsubst %,dump-table.%,$(tables_to_dump)): dump-table.%:
+	@mkdir -p dumps
+	./gis.sh pg_dump gis --column-inserts -at $* | sed 's/^\(INSERT .*\);\r\?$$/\1 ON CONFLICT DO NOTHING;/' > dumps/$*.tmp
+	@mv dumps/$*.tmp dumps/$*.sql
+
+import-tables: $(patsubst dumps/%.sql,import-table.%,$(wildcard dumps/*.sql))
+
+$(patsubst %,import-table.%,iiif_canvas_overrides iiif_canvas_point_overrides iiif_range_overrides iiif_overrides_tags): import-table.iiif_overrides
+$(patsubst %,import-table.%,iiif_overrides_tags): import-table.iiif_tags
+import-table.%: dumps/%.sql $(TOP_LEVEL)/build/stamps/table-%
+	./gis.sh psql -P pager=off -Atqc 'SELECT 1'
+	docker exec -i -u postgres gis_postgresql_1 psql gis < dumps/$*.sql

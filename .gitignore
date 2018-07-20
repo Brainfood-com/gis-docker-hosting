@@ -4,7 +4,9 @@
 
 build/
 data/
+dumps/
 
 .terraform
 terraform.tfstate
 terraform.tfstate.backup
+media.getty.edu/
