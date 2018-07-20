@@ -891,15 +891,19 @@ PHONY: tableimport configure-geoserver import-tables dump-tables iiif-import
 
 iiif_json_files := $(shell find media.getty.edu/ -name '*.json')
 iiif_tables = iiif iiif_metadata iiif_assoc iiif_manifest iiif_range iiif_canvas
-iiif-import: $(iiif_json_files) $(patsubst %,$(TOP_LEVEL)/build/stamps/table-%,$(iiif_tables))
+iiif-import: $(TOP_LEVEL)/build/stamps/iiif-import
+$(TOP_LEVEL)/build/stamps/iiif-import: $(iiif_json_files) $(patsubst %,$(TOP_LEVEL)/build/stamps/table-%,$(iiif_tables))
+	@mkdir -p $(@D)
 	./gis.sh gis-iiif-loader $(iiif_json_files)
+	@touch $@
 
 geoserver_tables := $(shell sed -n 's/^postgis featuretype publish --workspace gis --datastore postgresql --table \(.*\)/\1/p' init-geoserver.gs-shell)
 
 configure-geoserver: $(TOP_LEVEL)/build/stamps/configure-geoserver
 $(TOP_LEVEL)/build/stamps/configure-geoserver: init-geoserver.gs-shell $(patsubst %,$(TOP_LEVEL)/build/stamps/table-%,$(geoserver_tables))
+	@mkdir -p $(@D)
 	./gis.sh gs-shell --cmdfile init-geoserver.gs-shell
-	touch $@
+	@touch $@
 
 tables_to_dump = iiif_overrides iiif_canvas_overrides iiif_canvas_point_overrides iiif_range_overrides iiif_tags iiif_overrides_tags
 
