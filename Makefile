@@ -82,6 +82,8 @@ WITH fast_query AS (
 		ogc_fid
 	FROM
 		tl_2017_06037_edges
+	WHERE
+		roadflg = 'Y'
 	ORDER BY
 		wkb_geometry <#> $$1
 	LIMIT 30
