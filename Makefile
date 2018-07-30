@@ -257,13 +257,28 @@ join_geom AS (
 ),
 build_line AS (
 	SELECT ST_MakeLine((SELECT ST_MakeLine(geom) FROM join_geom)) AS line
+),
+line_points AS (
+	SELECT
+		ST_LineLocatePoint(a.line, param_start.point) AS start_percent,
+		ST_LineLocatePoint(a.line, param_end.point) AS end_percent
+	FROM
+		build_line a,
+		param_start,
+		param_end
+),
+fixed_line_points AS (
+	SELECT
+		CASE WHEN start_percent > end_percent THEN end_percent ELSE start_percent END as start_percent,
+		CASE WHEN start_percent > end_percent THEN start_percent ELSE end_percent END as end_percent
+	FROM
+		line_points
 )
 SELECT
-	ST_LineSubstring(a.line, ST_LineLocatePoint(a.line, param_start.point), ST_LineLocatePoint(a.line, param_end.point)) AS route
+	ST_LineSubstring(a.line, fixed_line_points.start_percent, fixed_line_points.end_percent) AS route
 FROM
 	build_line a,
-	param_start,
-	param_end
+	fixed_line_points
 $$body$$
 language sql;
 endef
