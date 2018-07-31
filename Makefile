@@ -197,7 +197,7 @@ $$body$$
 WITH
 param_start AS (SELECT * FROM route_point_data(start_at)),
 param_end AS (SELECT * FROM route_point_data(end_at)),
-dijkstra AS (
+plan AS (
 	SELECT
 		path_seq,
 		node,
@@ -209,11 +209,11 @@ dijkstra AS (
 	WHERE
 		edge != -1
 ),
-first_dijkstra_row AS (
-	SELECT * FROM dijkstra ORDER BY path_seq LIMIT 1
+first_plan_row AS (
+	SELECT * FROM plan ORDER BY path_seq LIMIT 1
 ),
-last_dijkstra_row AS (
-	SELECT * FROM dijkstra ORDER BY path_seq DESC LIMIT 1
+last_plan_row AS (
+	SELECT * FROM plan ORDER BY path_seq DESC LIMIT 1
 ),
 include_start AS (
 	SELECT
@@ -223,22 +223,22 @@ include_start AS (
 		cost
 	FROM
 		param_start
-	WHERE NOT EXISTS (SELECT path_seq FROM dijkstra JOIN param_start ON dijkstra.edge = param_start.edge)
+	WHERE NOT EXISTS (SELECT path_seq FROM plan JOIN param_start ON plan.edge = param_start.edge)
 ),
 include_end AS (
 	SELECT
-		(SELECT max(path_seq) + 1 FROM dijkstra) AS path_seq,
+		(SELECT max(path_seq) + 1 FROM plan) AS path_seq,
 		from_node AS node,
 		edge,
 		cost
 	FROM
 		param_end
-	WHERE NOT EXISTS (SELECT path_seq FROM dijkstra JOIN param_end ON dijkstra.edge = param_end.edge)
+	WHERE NOT EXISTS (SELECT path_seq FROM plan JOIN param_end ON plan.edge = param_end.edge)
 ),
 all_edges AS (
 	SELECT * FROM include_start
 	UNION
-	SELECT * FROM dijkstra
+	SELECT * FROM plan
 	UNION
 	SELECT * FROM include_end
 ),
