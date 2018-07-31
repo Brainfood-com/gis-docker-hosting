@@ -204,7 +204,7 @@ plan AS (
 		edge,
 		cost
 	FROM
-		pgr_dijkstra('select * from tl_2017_06037_edges_gis_routing', (SELECT from_node FROM param_start), (SELECT to_node FROM param_end), directed:=false)
+		pgr_dijkstra('select * from tl_2017_06037_edges_gis_routing', (SELECT from_node FROM param_start), (SELECT from_node FROM param_end), directed:=false)
 --		pgr_astar('select * from tl_2017_06037_edges_gis_routing', (SELECT from_node FROM param_start), (SELECT to_node FROM param_end), directed:=false)
 	WHERE
 		edge != -1
