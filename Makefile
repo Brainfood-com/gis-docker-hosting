@@ -275,10 +275,10 @@ fixed_line_points AS (
 		line_points
 )
 SELECT
-	ST_LineSubstring(a.line, fixed_line_points.start_percent, fixed_line_points.end_percent) AS route
+	ST_LineSubstring(a.line, b.start_percent, b.end_percent) AS route
 FROM
 	build_line a,
-	fixed_line_points
+	fixed_line_points b
 $$body$$
 language sql;
 endef
