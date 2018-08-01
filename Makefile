@@ -744,6 +744,19 @@ endef
 view_table_deps = iiif
 include rules.view.mk
 
+view_table_name = collection_overrides
+define view_sql
+SELECT
+  iiif.iiif_id,
+  iiif_overrides.external_id,
+  iiif_overrides.notes
+FROM
+  iiif JOIN iiif_overrides ON
+    iiif.external_id = iiif_overrides.external_id
+endef
+view_table_deps = iiif iiif_overrides
+include rules.view.mk
+
 view_table_name = manifest
 define view_sql
 SELECT
@@ -756,6 +769,19 @@ FROM
     can_base.iiif_id = manifest.iiif_id
 endef
 view_table_deps = iiif iiif_manifest
+include rules.view.mk
+
+view_table_name = manifest_overrides
+define view_sql
+SELECT
+  iiif.iiif_id,
+  iiif_overrides.external_id,
+  iiif_overrides.notes
+FROM
+  iiif JOIN iiif_overrides ON
+    iiif.external_id = iiif_overrides.external_id
+endef
+view_table_deps = iiif iiif_overrides
 include rules.view.mk
 
 view_table_name = range
