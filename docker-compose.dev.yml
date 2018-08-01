@@ -156,6 +156,7 @@ services:
     volumes:
       - npm-cache:/home/node/.npm/_cacache
       - ./gis-api:/srv/app
+      - ./data/exports:/srv/app/exports
     working_dir: /srv/app
 
   web-frontend:
