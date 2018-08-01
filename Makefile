@@ -538,7 +538,7 @@ FROM
   JOIN iiif_range_overrides ON
     iiif_overrides.iiif_override_id = iiif_range_overrides.iiif_override_id
 endef
-view_table_deps = iiif_overrides iiif_range_overrides
+view_table_deps = iiif iiif_overrides iiif_range_overrides
 include rules.view.mk
 
 view_table_name = canvas_overrides
@@ -554,7 +554,7 @@ FROM
   JOIN iiif_canvas_overrides ON
     iiif_overrides.iiif_override_id = iiif_canvas_overrides.iiif_override_id
 endef
-view_table_deps = iiif_overrides iiif_canvas_overrides
+view_table_deps = iiif iiif_overrides iiif_canvas_overrides
 include rules.view.mk
 
 view_table_name = canvas_point_overrides
