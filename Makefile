@@ -145,6 +145,8 @@ define static_table_schema
 	start_point geometry(Point, 4326),
 	end_point geometry(Point, 4326),
 	route geometry(LineString, 4326),
+	created_at timestamp not null default current_timestamp,
+	last_used_at timestamp not null default current_timestamp,
 	PRIMARY KEY(start_point, end_point)
 )
 endef
@@ -297,10 +299,11 @@ new_row AS (
 	SELECT
 		start_at,
 		end_at,
-		route_build(start_at, end_at) AS route
-	WHERE
-		NOT EXISTS (SELECT route FROM route_cache WHERE start_point = start_at AND end_point = end_at)
-	ON CONFLICT DO NOTHING
+		CASE
+			WHEN NOT EXISTS (SELECT route FROM route_cache WHERE start_point = start_at AND end_point = end_at) THEN route_build(start_at, end_at)
+			ELSE null
+		END AS route
+	ON CONFLICT(start_point, end_point) DO UPDATE SET last_used_at = current_timestamp
 	RETURNING route
 )
 SELECT route FROM new_row
