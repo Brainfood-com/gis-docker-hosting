@@ -25,6 +25,7 @@ ifeq ($(view_rules_needed),1)
 override view_def_md5sum = $(shell echo "mat=$(view_materialized):$(view_sql)" | md5sum | cut -f 1 -d ' ')
 
 viewimport tableimport: table-$(view_table_name)
+index-$(view_table_name):
 table-$(view_table_name): $(TOP_LEVEL)/build/stamps/table-$(view_table_name)
 tabledropdeps-$(view_table_name)::
 tabledrop: tabledrop-$(view_table_name)
@@ -57,6 +58,7 @@ $(TOP_LEVEL)/build/stamps/table-$(view_table_name):: $(TOP_LEVEL)/build/stamps/v
 	echo "view_table_deps=$(view_table_deps)"
 	$(MAKE) -s tabledrop-$(view_table_name)
 	$(PSQL) -c "CREATE $(view_materialized) VIEW $(view_table_name) AS $$view_sql"
+	$(MAKE) -s index-$(view_table_name)
 	@touch "$@"
 endif
 

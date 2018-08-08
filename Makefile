@@ -112,13 +112,9 @@ SELECT
 	a.tnidf::integer AS source,
 	a.tnidt::integer AS target,
 	CASE
-		WHEN gis_drivable THEN ST_Length(ST_Transform(a.wkb_geometry, 4326)::geography)
+	WHEN gis_drivable THEN ST_Length(ST_Transform(a.wkb_geometry, 4326)::geography)
 		ELSE -1
-	END::float8 AS cost,
-	ST_X(ST_StartPoint(a.wkb_geometry)) AS x1,
-	ST_Y(ST_StartPoint(a.wkb_geometry)) AS y1,
-	ST_X(ST_EndPoint(a.wkb_geometry)) AS x2,
-	ST_Y(ST_EndPoint(a.wkb_geometry)) AS y2
+	END::float8 AS cost
 FROM
 	(
 		SELECT
@@ -138,6 +134,15 @@ WHERE
 endef
 view_table_deps = tl_2017_06037_edges
 include rules.view.mk
+index_table_name = tl_2017_06037_edges_gis_routing
+index_schema = CREATE INDEX tl_2017_06037_edges_gis_routing_id ON tl_2017_06037_edges_gis_routing (id)
+include rules.index.mk
+index_table_name = tl_2017_06037_edges_gis_routing
+index_schema = CREATE INDEX tl_2017_06037_edges_gis_routing_source ON tl_2017_06037_edges_gis_routing (source)
+include rules.index.mk
+index_table_name = tl_2017_06037_edges_gis_routing
+index_schema = CREATE INDEX tl_2017_06037_edges_gis_routing_target ON tl_2017_06037_edges_gis_routing (target)
+include rules.index.mk
 
 static_table_name = route_cache
 define static_table_schema
@@ -150,6 +155,7 @@ define static_table_schema
 	PRIMARY KEY(start_point, end_point)
 )
 endef
+static_table_deps = route_build
 include rules.static-table.mk
 index_table_name = route_cache
 index_schema = CREATE INDEX route_cache_start_point ON route_cache USING gist(start_point)
@@ -191,6 +197,141 @@ endef
 function_table_deps = tl_2017_06037_edges
 include rules.function.mk
 
+function_name = route_plan
+define function_body
+(start_at geometry(Point, 4326), end_at geometry(Point, 4326)) RETURNS TABLE(
+	path_seq int,
+	node bigint,
+	edge bigint
+)
+AS
+$$body$$
+WITH
+param_start AS (SELECT * FROM route_point_data(start_at)),
+param_end AS (SELECT * FROM route_point_data(end_at)),
+edge_meta AS (SELECT MAX(id) AS max_id, LEAST(MIN(source), MIN(target)) AS node FROM tl_2017_06037_edges_gis_routing),
+raw_plan AS (
+	SELECT
+		path_seq,
+		node,
+		edge,
+		cost,
+		agg_cost
+	FROM
+	pgr_dijkstra('select * from route_build2_routing(''' || start_at::text || ''', ''' || end_at::text || ''')', (SELECT edge_meta.node - 1 FROM edge_meta), (SELECT edge_meta.node - 2 FROM edge_meta), directed:=false) a
+--		pgr_astar('select * from tl_2017_06037_edges_gis_routing', (SELECT from_node FROM param_start), (SELECT from_node FROM param_end), directed:=false) a
+)
+SELECT
+	a.path_seq,
+	a.node,
+	a.edge
+FROM
+	raw_plan a
+$$body$$
+language sql;
+endef
+function_table_deps = tl_2017_06037_edges_gis_routing route_point_data
+include rules.function.mk
+
+function_name = route_edges
+define function_body
+(start_at geometry(Point, 4326), end_at geometry(Point, 4326)) RETURNS TABLE(
+	path_seq int,
+	node bigint,
+	edge bigint,
+	geom geometry
+)
+AS
+$$body$$
+WITH
+param_start AS (SELECT * FROM route_point_data(start_at)),
+param_end AS (SELECT * FROM route_point_data(end_at)),
+edge_meta AS (SELECT MAX(id) AS max_id, LEAST(MIN(source), MIN(target)) AS node FROM tl_2017_06037_edges_gis_routing),
+plan AS (
+	SELECT * FROM route_plan(start_at, end_at)
+),
+join_edges AS (
+	SELECT
+		a.*,
+		CASE
+			WHEN a.edge = (SELECT edge_meta.max_id + 1 FROM edge_meta) THEN ST_Reverse(ST_LineSubstring(start_edge.wkb_geometry, 0, param_start.percentage))
+			WHEN a.edge = (SELECT edge_meta.max_id + 2 FROM edge_meta) THEN ST_LineSubstring(start_edge.wkb_geometry, param_start.percentage, 1)
+			WHEN a.edge = (SELECT edge_meta.max_id + 3 FROM edge_meta) THEN ST_LineSubstring(end_edge.wkb_geometry, 0, param_end.percentage)
+			WHEN a.edge = (SELECT edge_meta.max_id + 4 FROM edge_meta) THEN ST_Reverse(ST_LineSubstring(end_edge.wkb_geometry, param_end.percentage, 1))
+			WHEN a.node = plan_edge.tnidf THEN plan_edge.wkb_geometry
+			ELSE ST_Reverse(plan_edge.wkb_geometry)
+		END AS geom
+	FROM
+		plan a LEFT JOIN tl_2017_06037_edges plan_edge ON
+			a.edge = plan_edge.ogc_fid
+			AND
+			a.edge != -1
+		, param_start LEFT JOIN tl_2017_06037_edges start_edge ON
+			param_start.edge = start_edge.ogc_fid
+		, param_end LEFT JOIN tl_2017_06037_edges end_edge ON
+			param_end.edge = end_edge.ogc_fid
+	WHERE
+		param_start.edge != param_end.edge
+	UNION
+	SELECT
+		0 AS path_seq,
+		param_start.from_node,
+		param_start.edge,
+		CASE
+			WHEN param_start.percentage < param_end.percentage THEN
+				ST_LineSubstring(plan_edge.wkb_geometry, param_start.percentage, param_end.percentage)
+			WHEN param_end.percentage < param_start.percentage THEN
+				ST_Reverse(ST_LineSubstring(plan_edge.wkb_geometry, param_end.percentage, param_start.percentage))
+		END AS geom
+	FROM
+		param_start JOIN tl_2017_06037_edges plan_edge ON
+			param_start.edge = plan_edge.ogc_fid
+		, param_end
+	WHERE
+		param_start.edge = param_end.edge
+)
+SELECT * FROM join_edges
+--SELECT edge_meta.max_id + 1 AS id, param_start.from_node AS source, edge_meta.node - 1 AS target, param_start.cost * percentage AS cost FROM edge_meta, param_start
+--SELECT edge_meta.max_id + 2 AS id, edge_meta.node - 1, param_start.to_node AS source, param_start.cost * (1 - percentage) AS cost FROM edge_meta, param_start
+
+--SELECT edge_meta.max_id + 3 AS id, param_end.from_node AS source, edge_meta.node - 2 AS target, param_end.cost * percentage AS cost FROM edge_meta, param_end
+--SELECT edge_meta.max_id + 4 AS id, edge_meta.node - 2, param_end.to_node AS source, param_end.cost * (1 - percentage) AS cost FROM edge_meta, param_end
+$$body$$
+language sql;
+endef
+function_table_deps = route_plan route_point_data
+include rules.function.mk
+
+function_name = route_build2_routing
+define function_body
+(start_at geometry(Point, 4326), end_at geometry(Point, 4326)) RETURNS TABLE(
+	id integer,
+	source bigint,
+	target bigint,
+	cost float8
+)
+AS
+$$body$$
+WITH
+param_start AS (SELECT * FROM route_point_data(start_at)),
+param_end AS (SELECT * FROM route_point_data(end_at)),
+edge_meta AS (SELECT MAX(id) AS max_id, LEAST(MIN(source), MIN(target)) AS node FROM tl_2017_06037_edges_gis_routing)
+
+SELECT edge_meta.max_id + 1 AS id, param_start.from_node AS source, edge_meta.node - 1 AS target, param_start.cost * percentage AS cost FROM edge_meta, param_start
+UNION
+SELECT edge_meta.max_id + 2 AS id, edge_meta.node - 1, param_start.to_node AS source, param_start.cost * (1 - percentage) AS cost FROM edge_meta, param_start
+UNION
+SELECT edge_meta.max_id + 3 AS id, param_end.from_node AS source, edge_meta.node - 2 AS target, param_end.cost * percentage AS cost FROM edge_meta, param_end
+UNION
+SELECT edge_meta.max_id + 4 AS id, edge_meta.node - 2, param_end.to_node AS source, param_end.cost * (1 - percentage) AS cost FROM edge_meta, param_end
+UNION
+SELECT * FROM tl_2017_06037_edges_gis_routing
+$$body$$
+language sql;
+endef
+function_table_deps = route_point_data route_edges
+include rules.function.mk
+
 function_name = route_build
 define function_body
 (start_at geometry(Point, 4326), end_at geometry(Point, 4326)) RETURNS geometry
@@ -199,92 +340,28 @@ $$body$$
 WITH
 param_start AS (SELECT * FROM route_point_data(start_at)),
 param_end AS (SELECT * FROM route_point_data(end_at)),
-plan AS (
-	SELECT
-		path_seq,
-		node,
-		edge,
-		cost
-	FROM
-		pgr_dijkstra('select * from tl_2017_06037_edges_gis_routing', (SELECT from_node FROM param_start), (SELECT from_node FROM param_end), directed:=false)
---		pgr_astar('select * from tl_2017_06037_edges_gis_routing', (SELECT from_node FROM param_start), (SELECT to_node FROM param_end), directed:=false)
-	WHERE
-		edge != -1
-),
-first_plan_row AS (
-	SELECT * FROM plan ORDER BY path_seq LIMIT 1
-),
-last_plan_row AS (
-	SELECT * FROM plan ORDER BY path_seq DESC LIMIT 1
-),
-include_start AS (
-	SELECT
-		-1 AS path_seq,
-		to_node AS node,
-		edge,
-		cost
-	FROM
-		param_start
-	WHERE NOT EXISTS (SELECT path_seq FROM plan JOIN param_start ON plan.edge = param_start.edge)
-),
-include_end AS (
-	SELECT
-		(SELECT max(path_seq) + 1 FROM plan) AS path_seq,
-		from_node AS node,
-		edge,
-		cost
-	FROM
-		param_end
-	WHERE NOT EXISTS (SELECT path_seq FROM plan JOIN param_end ON plan.edge = param_end.edge)
-),
-all_edges AS (
-	SELECT * FROM include_start
-	UNION
-	SELECT * FROM plan
-	UNION
-	SELECT * FROM include_end
-),
 join_geom AS (
 	SELECT
-		a.*,
-		CASE
-			WHEN a.node = edges.tnidf THEN edges.wkb_geometry
-			ELSE ST_Reverse(edges.wkb_geometry)
-		END AS geom
+		a.geom
 	FROM
-		all_edges a JOIN tl_2017_06037_edges edges ON
-			a.edge = edges.ogc_fid
+		route_edges(start_at, end_at) a
 	ORDER BY
 		a.path_seq
 ),
 build_line AS (
-	SELECT ST_MakeLine((SELECT ST_MakeLine(geom) FROM join_geom)) AS line
-),
-line_points AS (
 	SELECT
-		ST_LineLocatePoint(a.line, param_start.point) AS start_percent,
-		ST_LineLocatePoint(a.line, param_end.point) AS end_percent
+		ST_MakeLine(geom) AS line
 	FROM
-		build_line a,
-		param_start,
-		param_end
-),
-fixed_line_points AS (
-	SELECT
-		CASE WHEN start_percent > end_percent THEN end_percent ELSE start_percent END as start_percent,
-		CASE WHEN start_percent > end_percent THEN start_percent ELSE end_percent END as end_percent
-	FROM
-		line_points
+		join_geom
 )
 SELECT
-	ST_LineSubstring(a.line, b.start_percent, b.end_percent) AS route
+	line
 FROM
-	build_line a,
-	fixed_line_points b
+	build_line
 $$body$$
 language sql;
 endef
-function_table_deps = route_point_data tl_2017_06037_edges
+function_table_deps = route_point_data route_edges
 include rules.function.mk
 
 # TODO: Split first and last edges if the points are in the middle
