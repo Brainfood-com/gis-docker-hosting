@@ -86,6 +86,70 @@ services:
     volumes:
       - /srv/docker/gis/postgresql/data:/var/lib/postgresql/data
 
+  minio:
+    image: minio/minio
+    volumes:
+      - /srv/docker/media.getty.edu/mirror:/data
+    ports:
+      - "9000:9000"
+    networks:
+      - default
+      - nginx
+    environment:
+      - VIRTUAL_HOST=s3.${VHOST_SUFFIX}
+      - VIRTUAL_PORT=9000
+      - MINIO_ACCESS_KEY=minio
+      - MINIO_SECRET_KEY=minio123
+    command: server /data
+
+  cantaloupe:
+    depends_on:
+      - minio
+    image: lyrasis/cantaloupe:latest
+    environment:
+      CANTALOUPE_UID: ${MAP_UID}
+      CANTALOUPE_GID: ${MAP_GID}
+      DELEGATE_SCRIPT_ENABLED: "true"
+      ENDPOINT_ADMIN_ENABLED: "false"
+      PRINT_STACK_TRACE_ON_ERROR_PAGES: "false"
+      ENDPOINT_IIIF_1_ENABLED: "false"
+      ENDPOINT_IIIF_2_ENABLED: "true"
+      ENDPOINT_API_ENABLED: "false"
+      #SOURCE_STATIC: "HttpSource"
+      #
+      CACHE_SERVER_TTL_SECONDS: "1296000"
+      CACHE_SERVER_WORKER_INTERVAL: "3600"
+      CACHE_SERVER_SOURCE_ENABLED: "true"
+      CACHE_SERVER_DERIVATIVE_ENABLED: "true"
+      CACHE_SERVER_DERIVATIVE: "FilesystemCache"
+      CACHE_SERVER_RESOLVE_FIRST: "false"
+
+      JAVA_OPTS: "-Xmx2g"
+      PROCESSOR_JP2: "OpenJpegProcessor"
+      PROCESSOR_STREAM_RETRIEVAL_STRATEGY: "CacheStrategy"
+      LOG_APPLICATION_LEVEL: "warn"
+
+      SOURCE_DELEGATE: "true"
+      FILESYSTEMSOURCE_LOOKUP_STRATEGY: "ScriptLookupStrategy"
+
+      HTTPSOURCE_LOOKUP_STRATEGY: "ScriptLookupStrategy"
+      HTTPSOURCE_REQUEST_TIMEOUT: "60"
+
+      S3SOURCE_LOOKUP_STRATEGY: "ScriptLookupStrategy"
+      S3SOURCE_ACCESS_KEY_ID: "minio"
+      S3SOURCE_SECRET_KEY: "minio123"
+      S3SOURCE_ENDPOINT: "http://minio:9000"
+
+      VIRTUAL_HOST: cantaloupe.${VHOST_SUFFIX}
+      VIRTUAL_PORT: 8182
+    networks:
+      - default
+      - nginx
+    volumes:
+      - ./delegates.rb:/cantaloupe/delegates.rb:ro
+      - /srv/docker/gis/cantaloupe/cache:/var/cache/cantaloupe
+      - /srv/docker/media.getty.edu/mirror:/srv/mirror:ro
+
   geoserver:
     build:
       args:
