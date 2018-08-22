@@ -14,7 +14,7 @@
 #
 class CustomDelegate
   REGEXES = [
-    /^(media\.getty\.edu)\/(iiif\/research\/archives\/[^\/]+)(_thumb)?$/
+    /^(media\.getty\.edu)\/(iiif\/research\/archives\/[^\/]+?)(_thumb)?$/
   ]
 
   ##
