@@ -13,12 +13,3 @@ CREATE EXTENSION postgres_fdw;
 CREATE EXTENSION pg_trgm;
 CREATE EXTENSION btree_gist;
 CREATE EXTENSION btree_gin;
-CREATE SERVER perm_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host 'perm-postgresql', port '5432', dbname 'perm');
-GRANT USAGE ON FOREIGN SERVER perm_server TO gis;
-
-\c gis gis
-CREATE SCHEMA perm;
-CREATE USER MAPPING FOR gis SERVER perm_server OPTIONS (user 'perm', password 'mrep');
---IMPORT FOREIGN SCHEMA public LIMIT TO (actors, directors) FROM SERVER film_server INTO films;
-
-

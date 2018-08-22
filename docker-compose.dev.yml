@@ -36,30 +36,6 @@ volumes:
   pgdata:
 
 services:
-  perm-postgresql:
-    build:
-      args:
-        - http_proxy
-      context: .
-      dockerfile: Dockerfile.postgresql
-      network: localdev_default
-      target: perm-postgres
-    #command: /sbin/my_init
-    env_file:
-      - ./.env.defaults
-    environment:
-      - PGDATA=/var/lib/postgresql/data
-    image: gis-postgresql-perm
-    labels:
-      - com.brainfood.docker.localdev.target_user=postgres
-      - com.brainfood.docker.localdev.tool.perm-pg_dump=pg_dump
-      - com.brainfood.docker.localdev.tool.perm-psql=psql
-    logging:
-      <<: *_logging
-    networks:
-      - app
-    volumes:
-      - /srv/docker/gis/perm-postgresql/data:/var/lib/perm-postgresql/data
   postgresql:
     build:
       args:
@@ -68,8 +44,6 @@ services:
       dockerfile: Dockerfile.postgresql
       network: localdev_default
     #command: /sbin/my_init
-    depends_on:
-      - perm-postgresql
     env_file:
       - ./.env.defaults
     environment:

@@ -9,10 +9,6 @@ RUN apt-get update \
         && true
 
 # The base layer used for both prod and dev builds.
-FROM postgres-base AS perm-postgres
-
-COPY perm-00-create-db.sql /docker-entrypoint-initdb.d/00-create-db.sql
-
 FROM postgres-base
 
 COPY 00-create-db.sql /docker-entrypoint-initdb.d/00-create-db.sql
