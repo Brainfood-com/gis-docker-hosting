@@ -1013,6 +1013,41 @@ endef
 view_table_deps = range_canvas iiif canvas_point_overrides canvas_overrides gisapp_nearest_edge
 include rules.view.mk
 
+
+view_table_name = routing_canvas_range_grouping
+define view_sql
+SELECT
+	range_canvas.range_id,
+	range_canvas.iiif_id,
+	range_canvas.sequence_num,
+	point,
+	gisapp_nearest_edge(canvas_point_overrides.point) AS edge,
+	exclude,
+	case when exclude is true then -1 else count(point) OVER (PARTITION BY range_canvas.range_id, exclude IS NULL OR exclude = false ORDER BY range_canvas.sequence_num) end AS forward,
+	case when exclude is true then -1 else count(point) OVER (PARTITION BY range_canvas.range_id, exclude IS NULL OR exclude = false ORDER BY range_canvas.sequence_num DESC) end AS reverse
+FROM
+	range_canvas LEFT JOIN canvas_point_overrides ON
+		range_canvas.iiif_id = canvas_point_overrides.iiif_id
+	LEFT JOIN canvas_overrides ON
+		range_canvas.iiif_id = canvas_overrides.iiif_id
+endef
+view_table_deps = range_canvas canvas_point_overrides canvas_overrides
+include rules.view.mk
+
+view_table_name = routing_canvas_range_list
+define view_sql
+SELECT
+	routing_canvas_range_grouping.*,
+	first_value(routing_canvas_range_grouping.point) OVER (PARTITION BY routing_canvas_range_grouping.range_id, routing_canvas_range_grouping.reverse ORDER BY routing_canvas_range_grouping.sequence_num DESC) AS end_point,
+	percent_rank() OVER (PARTITION BY routing_canvas_range_grouping.range_id, routing_canvas_range_grouping.reverse ORDER BY routing_canvas_range_grouping.sequence_num) start_rank,
+	cume_dist() OVER (PARTITION BY routing_canvas_range_grouping.range_id, routing_canvas_range_grouping.reverse ORDER BY routing_canvas_range_grouping.sequence_num) other_rank,
+	first_value(routing_canvas_range_grouping.point) OVER (PARTITION BY routing_canvas_range_grouping.range_id, routing_canvas_range_grouping.forward ORDER BY routing_canvas_range_grouping.sequence_num) AS start_point
+FROM
+	routing_canvas_range_grouping
+endef
+view_table_deps = routing_canvas_range_grouping
+include rules.view.mk
+
 PHONY: tableimport configure-geoserver import-tables dump-tables iiif-import
 
 iiif_json_files := $(shell find data/media.getty.edu/ -name '*.json')
