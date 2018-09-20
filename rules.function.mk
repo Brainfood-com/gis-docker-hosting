@@ -13,9 +13,9 @@ endif
 ifeq ($(strip $(function_body)),)
 override view_rules_needed =
 endif
-ifeq ($(strip $(function_table_deps)),)
-override view_rules_needed =
-endif
+#ifeq ($(strip $(function_table_deps)),)
+#override view_rules_needed =
+#endif
 
 # Always define the rules
 view-import:

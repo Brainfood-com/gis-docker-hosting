@@ -70,6 +70,91 @@ index_table_name = tl_2017_06037_edges
 index_schema = CREATE INDEX tl_2017_06037_edges_tfidl ON tl_2017_06037_edges (tfidl)
 include rules.index.mk
 
+function_name = gisapp_camera_fov_plpgsql
+define function_body
+-- explain
+(point geometry, direction float, depth float, spread float) RETURNS geometry
+AS
+$$body$$
+DECLARE
+	_pi float = pi();
+	_left float = _pi * (direction - spread / 2) / 180;
+	_right float = _pi * (direction + spread / 2) / 180;
+	_double_depth float = 2 * depth;
+	E1 float := _double_depth * sin(_left);
+	E2 float := _double_depth * sin(_right);
+	N1 float := _double_depth * cos(_left);
+	N2 float := _double_depth * cos(_right);
+	_x float := ST_X(point::geometry);
+	_y float := ST_Y(point::geometry);
+	point1 geometry := ST_SetSRID(ST_Point(_x + E1, _y + N1), ST_SRID(point));
+	point2 geometry := ST_SetSRID(ST_Point(_x + E2, _y + N2), ST_SRID(point));
+	triangle geometry := ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[point, point1, point2, point])), ST_SRID(point));
+BEGIN
+	RETURN ST_Intersection(ST_Buffer(point, depth), triangle);
+	--RETURN ST_Buffer(point, depth);
+	--RETURN triangle;
+	--RETURN ST_Collect(triangle, ST_Buffer(point, depth));
+END
+$$body$$
+language plpgsql immutable;
+endef
+function_table_deps = tl_2017_06037_edges
+include rules.function.mk
+
+function_name = gisapp_camera_fov_sql
+define function_body
+-- explain
+(point geometry, direction float, depth float, spread float) RETURNS geometry
+AS
+$$body$$
+SELECT
+	ST_Intersection(ST_Buffer(point, depth), ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[point, p4.point1, p4.point2, point])), p1.srid))
+FROM
+	(
+		SELECT
+			pi() AS pi,
+			2 * depth AS double_depth,
+			ST_X(point::geometry) AS x,
+			ST_Y(point::geometry) AS y,
+			ST_SRID(point) AS srid
+	) p1,
+	LATERAL (
+		SELECT
+			p1.pi * (direction - spread / 2) / 180 AS left,
+			p1.pi * (direction + spread / 2) / 180 AS right
+	) p2,
+	LATERAL (
+		SELECT
+			p1.double_depth * sin(p2.left) AS E1,
+			p1.double_depth * sin(p2.right) AS E2,
+			p1.double_depth * cos(p2.left) AS N1,
+			p1.double_depth * cos(p2.right) AS N2
+	) p3,
+	LATERAL (
+		SELECT
+			ST_SetSRID(ST_Point(p1.x + p3.E1, p1.y + p3.N1), p1.srid) AS point1,
+			ST_SetSRID(ST_Point(p1.x + p3.E2, p1.y + p3.N2), p1.srid) AS point2
+	) p4
+$$body$$
+language sql immutable;
+endef
+function_table_deps = tl_2017_06037_edges
+include rules.function.mk
+
+function_name = gisapp_camera_fov
+define function_body
+-- explain
+(point geometry, direction float, depth float, spread float) RETURNS geometry
+AS
+$$body$$
+SELECT CASE WHEN point IS NULL OR direction IS NULL OR depth IS NULL OR spread IS NULL THEN NULL ELSE gisapp_camera_fov_sql(point, direction, depth, spread) END
+$$body$$
+language sql immutable;
+endef
+function_table_deps = gisapp_camera_fov_plpgsql gisapp_camera_fov_sql
+include rules.function.mk
+
 function_name = gisapp_nearest_edge
 define function_body
 -- explain
@@ -923,7 +1008,11 @@ SELECT
   ran_can_assoc.sequence_num AS sequence_num,
   canvas.*
 FROM
-  iiif_assoc ran_can_assoc JOIN canvas ON
+  iiif JOIN iiif_assoc ran_can_assoc ON
+    iiif.iiif_id = ran_can_assoc.iiif_id_from
+    AND
+    iiif.iiif_type_id = 'sc:Range'
+  JOIN canvas ON
     ran_can_assoc.iiif_assoc_type_id = 'sc:Canvas'
     AND
     ran_can_assoc.iiif_id_to = canvas.iiif_id
@@ -951,68 +1040,17 @@ endef
 view_table_deps = range_canvas iiif iiif_canvas canvas_overrides
 include rules.view.mk
 
-view_table_name = range_canvas_routing_base
-define view_sql
-WITH
-road AS (
-	SELECT st_linemerge(st_collect(geom)) AS geom FROM sunset_road_merged
-),
-road_meta AS (
-	SELECT
-		ST_StartPoint(road.geom) AS start_point,
-		gisapp_nearest_edge(ST_StartPoint(road.geom)) AS start_edge,
-		ST_EndPoint(road.geom) AS end_point,
-		gisapp_nearest_edge(ST_EndPoint(road.geom)) AS end_edge
-	FROM
-		road
-),
-canvas_point_override AS (
-	SELECT
-		iiif.iiif_id,
-		canvas_point_overrides.point,
-		gisapp_nearest_edge(canvas_point_overrides.point) AS edge
-	FROM
-		iiif JOIN canvas_point_overrides ON
-			iiif.external_id = canvas_point_overrides.external_id
-	GROUP BY
-		iiif.iiif_id,
-		canvas_point_overrides.point
-),
-canvas_range_grouping AS (
-	SELECT
-		a.range_id,
-		a.iiif_id,
-		a.sequence_num,
-		b.point,
-		c.exclude,
-		count(b.point) OVER (PARTITION BY c.exclude IS NULL OR c.exclude = false, a.range_id ORDER BY a.sequence_num) AS forward,
-		count(b.point) OVER (PARTITION BY c.exclude IS NULL OR c.exclude = false, a.range_id ORDER BY a.sequence_num DESC) AS reverse,
-		percent_rank() OVER (PARTITION BY c.exclude IS NULL OR c.exclude = false, a.range_id, count(b.point) ORDER BY a.sequence_num) start_rank,
-		cume_dist() OVER (PARTITION BY c.exclude IS NULL OR c.exclude = false, a.range_id, count(b.point) ORDER BY a.sequence_num) other_rank
-	FROM
-		range_canvas a LEFT JOIN canvas_point_overrides b ON
-			a.external_id = b.external_id
-		LEFT JOIN canvas_overrides c ON
-			a.iiif_id = c.iiif_id
-	GROUP BY
-		a.range_id,
-		a.iiif_id,
-		c.exclude,
-		a.sequence_num,
-		b.point
-)
-SELECT
-	canvas_range_grouping.*
---	COALESCE(first_value(canvas_range_grouping.point) OVER (PARTITION BY canvas_range_grouping.reverse ORDER BY canvas_range_grouping.sequence_num DESC), (SELECT end_point FROM road_meta)) AS end_point,
---	COALESCE(first_value(canvas_range_grouping.point) OVER (PARTITION BY canvas_range_grouping.forward ORDER BY canvas_range_grouping.sequence_num), (SELECT start_point FROM road_meta)) AS start_point
-FROM
-	canvas_range_grouping
-ORDER BY
-	sequence_num
+function_name = coalesce_agg_func
+define function_body
+(state anyelement, value anyelement) RETURNS anyelement AS $$body$$ SELECT coalesce(value, state) $$body$$ LANGUAGE SQL;
 endef
-view_table_deps = range_canvas iiif canvas_point_overrides canvas_overrides gisapp_nearest_edge
-include rules.view.mk
+include rules.function.mk
 
+aggregate_name = coalesce_agg
+aggregate_signature = (anyelement)
+aggregate_body = (SFUNC = coalesce_agg_func, STYPE = anyelement)
+aggregate_table_deps = coalesce_agg_func
+include rules.aggregate.mk
 
 view_table_name = routing_canvas_range_grouping
 define view_sql
@@ -1021,31 +1059,87 @@ SELECT
 	range_canvas.iiif_id,
 	range_canvas.sequence_num,
 	point,
-	gisapp_nearest_edge(canvas_point_overrides.point) AS edge,
 	exclude,
-	case when exclude is true then -1 else count(point) OVER (PARTITION BY range_canvas.range_id, exclude IS NULL OR exclude = false ORDER BY range_canvas.sequence_num) end AS forward,
-	case when exclude is true then -1 else count(point) OVER (PARTITION BY range_canvas.range_id, exclude IS NULL OR exclude = false ORDER BY range_canvas.sequence_num DESC) end AS reverse
+	case when exclude is true then -1 else count(point) OVER reverse end AS reverse,
+	case when exclude is true then null else coalesce_agg(point) OVER reverse end AS end_point,
+	case when exclude is true then null else coalesce_agg(point) OVER forward end AS start_point
 FROM
 	range_canvas LEFT JOIN canvas_point_overrides ON
 		range_canvas.iiif_id = canvas_point_overrides.iiif_id
 	LEFT JOIN canvas_overrides ON
 		range_canvas.iiif_id = canvas_overrides.iiif_id
+WINDOW
+	reverse AS (PARTITION BY range_canvas.range_id, exclude IS NULL OR exclude = false ORDER BY sequence_num DESC),
+	forward AS (PARTITION BY range_canvas.range_id, exclude IS NULL OR exclude = false ORDER BY sequence_num)
 endef
-view_table_deps = range_canvas canvas_point_overrides canvas_overrides
+view_table_deps = range_canvas canvas_point_overrides canvas_overrides coalesce_agg
 include rules.view.mk
 
-view_table_name = routing_canvas_range_list
+view_table_name = routing_canvas_range_interpolation
 define view_sql
 SELECT
-	routing_canvas_range_grouping.*,
-	first_value(routing_canvas_range_grouping.point) OVER (PARTITION BY routing_canvas_range_grouping.range_id, routing_canvas_range_grouping.reverse ORDER BY routing_canvas_range_grouping.sequence_num DESC) AS end_point,
-	percent_rank() OVER (PARTITION BY routing_canvas_range_grouping.range_id, routing_canvas_range_grouping.reverse ORDER BY routing_canvas_range_grouping.sequence_num) start_rank,
-	cume_dist() OVER (PARTITION BY routing_canvas_range_grouping.range_id, routing_canvas_range_grouping.reverse ORDER BY routing_canvas_range_grouping.sequence_num) other_rank,
-	first_value(routing_canvas_range_grouping.point) OVER (PARTITION BY routing_canvas_range_grouping.range_id, routing_canvas_range_grouping.forward ORDER BY routing_canvas_range_grouping.sequence_num) AS start_point
+	a.range_id,
+	a.iiif_id,
+	a.sequence_num,
+	a.route_point AS point,
+	CASE
+		WHEN route_point IS NULL THEN
+			null
+		WHEN (row_number() OVER points) = 1 THEN
+			ST_Azimuth(route_point, lead(route_point, 1) OVER points)
+		ELSE
+			ST_Azimuth(lag(route_point, 1) OVER points, route_point)
+	END AS bearing
 FROM
-	routing_canvas_range_grouping
+	(
+		SELECT
+			*,
+			CASE
+				WHEN point IS NOT NULL THEN point
+				WHEN start_point IS NOT NULL AND end_point IS NOT NULL AND start_point::text != end_point::text THEN ST_LineInterpolatePoint(plan_route(start_point, end_point), cume_dist() OVER ranking)
+				ELSE null
+			END AS route_point
+		FROM
+			routing_canvas_range_grouping
+		WINDOW
+			ranking AS (PARTITION BY range_id, reverse ORDER BY sequence_num)
+	) a
+WINDOW
+	points AS (PARTITION BY range_id, a.route_point IS NOT NULL ORDER BY sequence_num)
+ORDER BY
+	a.sequence_num
+
 endef
 view_table_deps = routing_canvas_range_grouping
+include rules.view.mk
+
+view_table_name = routing_canvas_range_camera
+define view_sql
+WITH range_fov AS (
+	SELECT
+		iiif_id,
+		COALESCE(fov_depth, 0.0005) AS depth,
+		COALESCE(fov_angle, 60) AS angle,
+		COALESCE(fov_orientation, 'left') AS orientation
+	FROM
+		range_overrides
+)
+SELECT
+	a.*
+FROM
+	(
+		SELECT
+			a.*,
+			CASE
+				WHEN a.point IS NULL OR a.bearing IS NULL THEN null
+				ELSE gisapp_camera_fov(a.point, degrees(a.bearing) + CASE WHEN b.orientation = 'left' THEN -90 ELSE 90 END, b.depth, b.angle)
+			END AS camera
+		FROM
+			routing_canvas_range_interpolation a LEFT JOIN range_fov b ON
+				a.range_id = b.iiif_id
+	) a
+endef
+view_table_deps = routing_canvas_range_interpolation gisapp_camera_fov range_overrides
 include rules.view.mk
 
 PHONY: tableimport configure-geoserver import-tables dump-tables iiif-import
