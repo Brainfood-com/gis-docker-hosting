@@ -76,11 +76,14 @@ define function_body
 (point geometry, direction float, depth float, spread float) RETURNS geometry
 AS
 $$body$$
+-- direction is degrees
+-- depth is meters
+-- spread is degrees
 DECLARE
 	_pi float = pi();
 	_left float = _pi * (direction - spread / 2) / 180;
 	_right float = _pi * (direction + spread / 2) / 180;
-	_double_depth float = 2 * depth;
+	_double_depth float = 2 * depth / 200000;
 	E1 float := _double_depth * sin(_left);
 	E2 float := _double_depth * sin(_right);
 	N1 float := _double_depth * cos(_left);
@@ -91,7 +94,7 @@ DECLARE
 	point2 geometry := ST_SetSRID(ST_Point(_x + E2, _y + N2), ST_SRID(point));
 	triangle geometry := ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[point, point1, point2, point])), ST_SRID(point));
 BEGIN
-	RETURN ST_Intersection(ST_Buffer(point, depth), triangle);
+	RETURN ST_Intersection(ST_Buffer(point, depth / 200000), triangle);
 	--RETURN ST_Buffer(point, depth);
 	--RETURN triangle;
 	--RETURN ST_Collect(triangle, ST_Buffer(point, depth));
@@ -108,13 +111,16 @@ define function_body
 (point geometry, direction float, depth float, spread float) RETURNS geometry
 AS
 $$body$$
+-- direction is degrees
+-- depth is meters
+-- spread is degrees
 SELECT
-	ST_Intersection(ST_Buffer(point, depth), ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[point, p4.point1, p4.point2, point])), p1.srid))
+	ST_Intersection(ST_Buffer(point, depth / 200000), ST_SetSRID(ST_MakePolygon(ST_MakeLine(ARRAY[point, p4.point1, p4.point2, point])), p1.srid))
 FROM
 	(
 		SELECT
 			pi() AS pi,
-			2 * depth AS double_depth,
+			2 * depth / 200000 AS double_depth,
 			ST_X(point::geometry) AS x,
 			ST_Y(point::geometry) AS y,
 			ST_SRID(point) AS srid
@@ -1118,7 +1124,7 @@ define view_sql
 WITH range_fov AS (
 	SELECT
 		iiif_id,
-		COALESCE(fov_depth, 0.0005) AS depth,
+		COALESCE(fov_depth, 100) AS depth,
 		COALESCE(fov_angle, 60) AS angle,
 		COALESCE(fov_orientation, 'left') AS orientation
 	FROM
