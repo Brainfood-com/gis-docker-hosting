@@ -12,10 +12,16 @@
 # versions. Likewise, earlier versions of the script are not compatible with
 # Cantaloupe 4.
 #
+
+java_import java.net.URI
+java_import 'edu.illinois.library.cantaloupe.util.AWSClientBuilder'
+
 class CustomDelegate
   REGEXES = [
     /^(media\.getty\.edu)\/(iiif\/research\/archives\/[^\/]+?)(_thumb)?$/
   ]
+
+  S3_CLIENT = AWSClientBuilder.new().endpointURI(URI.new(ENV['S3SOURCE_ENDPOINT'])).accessKeyID(ENV['S3SOURCE_ACCESS_KEY_ID']).secretKey(ENV['S3SOURCE_SECRET_KEY']).maxConnections(0).build()
 
   ##
   # Attribute for the request context, which is a hash containing information
@@ -124,7 +130,7 @@ class CustomDelegate
       m = identifier.match(regex)
       if m
         # Not the actual resource, just a stamp file
-        return 'S3Source' if File.file?('/srv/mirror/' + m[1] + '/' + m[2] + '/full.jpg')
+        return 'S3Source' if S3_CLIENT.doesObjectExist('mirror', m[1] + '/' + m[2] + '/full.jpg')
       end
     end
     return 'HttpSource'
@@ -150,7 +156,7 @@ class CustomDelegate
     identifier = context['identifier']
     m = identifier.match(GETTY_REGEX)
     if m
-      return '/srv/mirror/' + m[1] + '/' + m[2] + '/full.jpg'
+      return '/srv/minio/mirror/' + m[1] + '/' + m[2] + '/full.jpg'
     end
   end
 
@@ -219,8 +225,8 @@ class CustomDelegate
       if m
         # Not the actual resource, just a stamp file
         return {
-          'key' => m[2] + '/full.jpg',
-          'bucket' => m[1],
+          'key' => m[1] + '/' + m[2] + '/full.jpg',
+          'bucket' => 'mirror',
         }
       end
     end

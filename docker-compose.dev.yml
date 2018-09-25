@@ -63,7 +63,7 @@ services:
   minio:
     image: minio/minio
     volumes:
-      - /srv/docker/media.getty.edu/mirror:/data
+      - /srv/docker/minio/data:/data
     ports:
       - "9000:9000"
     networks:
@@ -110,6 +110,8 @@ services:
       HTTPSOURCE_REQUEST_TIMEOUT: "60"
 
       S3SOURCE_LOOKUP_STRATEGY: "ScriptLookupStrategy"
+      S3SOURCE_BUCKET_NAME: "gis-app"
+      S3SOURCE_BUCKET_LOCATION: "us-east-1"
       S3SOURCE_ACCESS_KEY_ID: "minio"
       S3SOURCE_SECRET_KEY: "minio123"
       S3SOURCE_ENDPOINT: "http://minio:9000"
@@ -122,7 +124,7 @@ services:
     volumes:
       - ./delegates.rb:/cantaloupe/delegates.rb:ro
       - /srv/docker/gis/cantaloupe/cache:/var/cache/cantaloupe
-      - /srv/docker/media.getty.edu/mirror:/srv/mirror:ro
+      - /srv/docker/minio/data:/srv/minio:ro
 
   geoserver:
     build:
