@@ -235,6 +235,20 @@ index_table_name = tl_2017_06037_edges_gis_routing
 index_schema = CREATE INDEX tl_2017_06037_edges_gis_routing_target ON tl_2017_06037_edges_gis_routing (target)
 include rules.index.mk
 
+static_table_name = iiif_proc
+define static_table_schema
+(
+	image TEXT UNIQUE,
+	iiif_proc_type_id TEXT,
+	proc_json JSONB,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_modified_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY(image, iiif_proc_type_id)
+)
+endef
+static_table_deps = iiif_overrides
+include rules.static-table.mk
+
 static_table_name = route_cache
 define static_table_schema
 (
@@ -975,12 +989,17 @@ SELECT
   can_base.external_id,
   can_base.label,
   can_base.iiif_type_id,
+  gv.proc_json AS google_vision,
   canvas.*
 FROM
   iiif can_base JOIN iiif_canvas canvas ON
     can_base.iiif_id = canvas.iiif_id
+  LEFT JOIN iiif_proc gv ON
+    canvas.image = gv.image
+    AND
+    gv.iiif_proc_type_id = 'GOOGLE_VISION'
 endef
-view_table_deps = iiif iiif_canvas
+view_table_deps = iiif iiif_canvas iiif_proc
 include rules.view.mk
 
 view_table_name = sequence_canvas

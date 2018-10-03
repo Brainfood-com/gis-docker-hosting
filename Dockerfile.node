@@ -6,6 +6,12 @@ COPY --from=localdev /srv/localdev/image-scripts/node/prep-image /srv/localdev/i
 RUN ["/srv/localdev/image-scripts/node/prep-image"]
 COPY --from=localdev /srv/localdev/image-scripts/node/ /srv/localdev/image-scripts/node/
 
+RUN export DEBIAN_FRONTEND=noninteractive \
+	&& apt-get update \
+	&& apt-get install -y imagemagick \
+	&& find /var/lib/apt/lists /var/cache/apt/archives -type f -delete \
+	&& true
+
 # This layer expects /srv/app to be suitably volume-mounted
 # at runtime, so it can do the build during container start.
 # It can optionally make use of the following environment settings:

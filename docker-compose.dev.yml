@@ -17,13 +17,12 @@ x-node-base: &_node-base
   command: ["app-npm", "gosu", "node", "npm", "run", "dev"]
   image: gis-dev-node
   networks:
-    app:
+    default:
     localdev:
     nginx:
   restart: always
 
 networks:
-  app:
   localdev:
     external:
       name: localdev_default
@@ -56,7 +55,7 @@ services:
     logging:
       <<: *_logging
     networks:
-      - app
+      - default
     volumes:
       - /srv/docker/gis/postgresql/data:/var/lib/postgresql/data
 
@@ -149,7 +148,7 @@ services:
       <<: *_logging
     networks:
       nginx:
-      app:
+      default:
         aliases:
           - geonode
     ports:
@@ -183,7 +182,7 @@ services:
       - com.brainfood.docker.localdev.tool.python
       - com.brainfood.docker.localdev.tool.read_location_data=/srv/app/android_location_converter/read_location_data.py
     networks:
-      - app
+      - default
     volumes:
       - .:/srv/app
     working_dir: /srv/app
