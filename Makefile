@@ -195,6 +195,43 @@ endef
 function_table_deps = tl_2017_06037_edges
 include rules.function.mk
 
+function_name = gisapp_point_addr
+define function_body
+-- explain
+(point geometry) RETURNS TABLE(
+	ogc_fid INTEGER,
+	number INTEGER
+)
+AS
+$$body$$
+WITH edge_row AS (
+	SELECT
+		ST_LineLocatePoint(wkb_geometry, $$1) AS point_offset_position,
+		*
+	FROM
+		tl_2017_06037_edges
+	WHERE
+		ogc_fid = gisapp_nearest_edge($$1)
+)
+SELECT
+	ogc_fid,
+	CASE
+		WHEN lfromadd IS NOT NULL AND ltoadd IS NOT NULL THEN
+			(ltoadd::INTEGER - lfromadd::INTEGER) * (point_offset_position) + lfromadd::INTEGER
+		WHEN rfromadd IS NOT NULL AND rtoadd IS NOT NULL THEN
+			(rtoadd::INTEGER - rfromadd::INTEGER) * (1 - point_offset_position) + rfromadd::INTEGER
+		ELSE
+			NULL
+	END::INTEGER AS number
+FROM
+	edge_row
+$$body$$
+immutable
+language sql;
+endef
+function_table_deps = tl_2017_06037_edges
+include rules.function.mk
+
 view_table_name = tl_2017_06037_edges_gis_routing
 view_materialized = true
 define view_sql
@@ -1150,6 +1187,9 @@ WITH range_fov AS (
 		range_overrides
 )
 SELECT
+	addredge.fullname AS addr_fullname,
+	COALESCE(addredge.zipl, addredge.zipr) AS addr_zipcode,
+	addr.number AS addr_number,
 	a.*
 FROM
 	(
@@ -1162,9 +1202,12 @@ FROM
 		FROM
 			routing_canvas_range_interpolation a LEFT JOIN range_fov b ON
 				a.range_id = b.iiif_id
-	) a
+	) a LEFT JOIN LATERAL (SELECT * FROM gisapp_point_addr(a.point)) addr ON
+		TRUE
+	LEFT JOIN tl_2017_06037_edges addredge ON
+		addr.ogc_fid = addredge.ogc_fid
 endef
-view_table_deps = routing_canvas_range_interpolation gisapp_camera_fov range_overrides
+view_table_deps = routing_canvas_range_interpolation gisapp_camera_fov range_overrides gisapp_point_addr
 include rules.view.mk
 
 PHONY: tableimport configure-geoserver import-tables dump-tables iiif-import
