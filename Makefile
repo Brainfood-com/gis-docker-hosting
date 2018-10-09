@@ -1147,7 +1147,9 @@ SELECT
 	CASE
 		WHEN route_point IS NULL THEN
 			null
-		WHEN (row_number() OVER points) = 1 THEN
+		WHEN (row_number() OVER points_forward_order) = (count(*) OVER points_forward) THEN
+			ST_Azimuth(lag(route_point, 1) OVER points, route_point)
+		WHEN (row_number() OVER points_forward_order) = 1 THEN
 			ST_Azimuth(route_point, lead(route_point, 1) OVER points)
 		ELSE
 			ST_Azimuth(lag(route_point, 1) OVER points, route_point)
@@ -1167,7 +1169,9 @@ FROM
 			ranking AS (PARTITION BY range_id, reverse ORDER BY sequence_num)
 	) a
 WINDOW
-	points AS (PARTITION BY range_id, a.route_point IS NOT NULL ORDER BY sequence_num)
+	points AS (PARTITION BY range_id, a.route_point IS NOT NULL ORDER BY sequence_num),
+	points_forward AS (PARTITION BY range_id, a.start_point, a.route_point IS NOT NULL),
+	points_forward_order AS (PARTITION BY range_id, a.start_point, a.route_point IS NOT NULL ORDER BY sequence_num)
 ORDER BY
 	a.sequence_num
 
