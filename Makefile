@@ -711,6 +711,7 @@ define static_table_schema
 (
 	iiif_override_id INTEGER REFERENCES iiif_overrides(iiif_override_id) PRIMARY KEY,
 
+	reverse BOOLEAN,
 	fov_angle INTEGER,
 	fov_depth INTEGER,
 	fov_orientation TEXT CHECK (fov_orientation IN ('left', 'right'))
@@ -1184,6 +1185,7 @@ define view_sql
 WITH range_fov AS (
 	SELECT
 		iiif_id,
+		COALESCE(reverse, false) AS reverse,
 		COALESCE(fov_depth, 100) AS depth,
 		COALESCE(fov_angle, 60) AS angle,
 		COALESCE(fov_orientation, 'left') AS orientation
