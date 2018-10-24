@@ -192,6 +192,7 @@ services:
     environment:
       VHOST_SUFFIX:
       VIRTUAL_HOST: api.${VHOST_SUFFIX}
+      CALCULATE_ROUTE_CONCURRENCY:
     volumes:
       - npm-cache:/home/node/.npm/_cacache
       - ./gis-api:/srv/app
