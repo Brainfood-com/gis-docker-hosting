@@ -197,6 +197,7 @@ services:
       - npm-cache:/home/node/.npm/_cacache
       - ./gis-api:/srv/app
       - ./data/exports:/srv/app/exports
+      - ./data/geojson:/srv/app/geojson
     working_dir: /srv/app
 
   web-frontend:
