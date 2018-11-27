@@ -1314,7 +1314,7 @@ SELECT
 	a.*,
 	CASE
 		WHEN a.point IS NULL OR a.bearing IS NULL THEN null
-		ELSE plan_camera(a.point, degrees(a.bearing) + CASE WHEN b.orientation = 'left' THEN -90 ELSE 90 END, b.depth, b.angle)
+		ELSE gisapp_camera_fov(a.point, degrees(a.bearing) + CASE WHEN b.orientation = 'left' THEN -90 ELSE 90 END, b.depth, b.angle)
 	END AS camera
 FROM
 	(
