@@ -1151,6 +1151,58 @@ index_table_name = routing_canvas_range_interpolation_cache
 index_schema = CREATE INDEX routing_canvas_range_interpolation_cache_point ON routing_canvas_range_interpolation_cache USING gist(point)
 include rules.index.mk
 
+trigger_name = rcri_range_override_insert_trigger
+trigger_table = iiif_range_overrides
+trigger_events = AFTER INSERT
+define trigger_body
+FOR EACH ROW EXECUTE PROCEDURE rcri_range_override_trigger()
+endef
+trigger_table_deps = iiif_range_overrides rcri_range_override_trigger
+include rules.trigger.mk
+
+trigger_name = rcri_range_override_update_trigger
+trigger_table = iiif_range_overrides
+trigger_events = AFTER UPDATE
+define trigger_body
+FOR EACH ROW EXECUTE PROCEDURE rcri_range_override_trigger()
+endef
+trigger_table_deps = iiif_range_overrides rcri_range_override_trigger
+include rules.trigger.mk
+
+trigger_name = rcri_range_override_delete_trigger
+trigger_table = iiif_range_overrides
+trigger_events = AFTER DELETE
+define trigger_body
+FOR EACH ROW EXECUTE PROCEDURE rcri_range_override_trigger()
+endef
+trigger_table_deps = iiif_range_overrides rcri_range_override_trigger
+include rules.trigger.mk
+
+function_name = rcri_range_override_trigger
+define function_body
+() RETURNS trigger
+AS
+$$body$$
+BEGIN
+	RAISE NOTICE 'trigger';
+	IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+		RAISE NOTICE 'trigger new';
+		PERFORM rcri_update_range_override(NEW.iiif_override_id);
+		RETURN NEW;
+	END IF;
+	IF (TG_OP = 'DELETE') THEN
+		RAISE NOTICE 'trigger old';
+		PERFORM rcri_update_range_override(OLD.iiif_override_id);
+		RETURN OLD;
+	END IF;
+	RETURN NEW;
+END
+$$body$$
+LANGUAGE plpgsql;
+endef
+function_table_deps = rcri_update_range_override
+include rules.function.mk
+
 trigger_name = rcri_canvas_override_insert_trigger
 trigger_table = iiif_canvas_overrides
 trigger_events = AFTER INSERT
@@ -1351,7 +1403,7 @@ FROM
 			points AS (PARTITION BY range_id, a.route_point IS NOT NULL ORDER BY sequence_num),
 			points_forward AS (PARTITION BY range_id, a.start_point, a.route_point IS NOT NULL),
 			points_forward_order AS (PARTITION BY range_id, a.start_point, a.route_point IS NOT NULL ORDER BY sequence_num)
-	) a JOIN range_fov b ON
+	) a LEFT JOIN range_fov b ON
 		a.range_id = b.iiif_id
 ORDER BY
 	a.sequence_num
