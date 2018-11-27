@@ -1138,49 +1138,167 @@ endef
 view_table_deps = range_canvas canvas_point_overrides canvas_overrides coalesce_agg
 include rules.view.mk
 
-view_table_name = routing_canvas_range_interpolation
-define view_sql
-SELECT
-	a.range_id,
-	a.iiif_id,
-	a.sequence_num,
-	a.route_point AS point,
-	CASE
-		WHEN route_point IS NULL THEN
-			null
-		WHEN (row_number() OVER points_forward_order) = (count(*) OVER points_forward) THEN
-			ST_Azimuth(lag(route_point, 1) OVER points, route_point)
-		WHEN (row_number() OVER points_forward_order) = 1 THEN
-			ST_Azimuth(route_point, lead(route_point, 1) OVER points)
-		ELSE
-			ST_Azimuth(lag(route_point, 1) OVER points, route_point)
-	END AS bearing
-FROM
-	(
-		SELECT
-			*,
-			CASE
-				WHEN point IS NOT NULL THEN point
-				WHEN start_point IS NOT NULL AND end_point IS NOT NULL AND start_point::text != end_point::text THEN ST_LineInterpolatePoint(plan_route(start_point, end_point), cume_dist() OVER ranking)
-				ELSE null
-			END AS route_point
-		FROM
-			routing_canvas_range_grouping
-		WINDOW
-			ranking AS (PARTITION BY range_id, reverse ORDER BY sequence_num)
-	) a
-WINDOW
-	points AS (PARTITION BY range_id, a.route_point IS NOT NULL ORDER BY sequence_num),
-	points_forward AS (PARTITION BY range_id, a.start_point, a.route_point IS NOT NULL),
-	points_forward_order AS (PARTITION BY range_id, a.start_point, a.route_point IS NOT NULL ORDER BY sequence_num)
-ORDER BY
-	a.sequence_num
-
+static_table_name = routing_canvas_range_interpolation_cache
+define static_table_schema
+AS SELECT * FROM routing_canvas_range_interpolation
 endef
-view_table_deps = routing_canvas_range_grouping
-include rules.view.mk
+static_table_deps = routing_canvas_range_interpolation
+include rules.static-table.mk
+index_table_name = routing_canvas_range_interpolation_cache
+index_schema = CREATE INDEX routing_canvas_range_interpolation_cache_range_id ON routing_canvas_range_interpolation_cache (range_id)
+include rules.index.mk
+index_table_name = routing_canvas_range_interpolation_cache
+index_schema = CREATE INDEX routing_canvas_range_interpolation_cache_point ON routing_canvas_range_interpolation_cache USING gist(point)
+include rules.index.mk
 
-view_table_name = routing_canvas_range_camera
+trigger_name = rcri_canvas_override_insert_trigger
+trigger_table = iiif_canvas_overrides
+trigger_events = AFTER INSERT
+define trigger_body
+FOR EACH ROW WHEN (
+	NEW.exclude = TRUE -- insert of an exclude
+) EXECUTE PROCEDURE rcri_canvas_override_trigger()
+endef
+trigger_table_deps = iiif_canvas_overrides rcri_canvas_override_trigger
+include rules.trigger.mk
+
+trigger_name = rcri_canvas_override_update_trigger
+trigger_table = iiif_canvas_overrides
+trigger_events = AFTER UPDATE
+define trigger_body
+FOR EACH ROW WHEN (
+	TRUE
+	OR
+	((OLD.exclude IS NULL OR OLD.exclude = FALSE) AND NEW.exclude = TRUE) -- update, setting excluded
+	OR
+	(OLD.exclude = TRUE AND (NEW.exclude IS NULL OR NEW.exclude = FALSE)) -- update, removing exclusion
+) EXECUTE PROCEDURE rcri_canvas_override_trigger()
+endef
+trigger_table_deps = iiif_canvas_overrides rcri_canvas_override_trigger
+include rules.trigger.mk
+
+trigger_name = rcri_canvas_override_delete_trigger
+trigger_table = iiif_canvas_overrides
+trigger_events = AFTER DELETE
+define trigger_body
+FOR EACH ROW WHEN (OLD.exclude = TRUE) EXECUTE PROCEDURE rcri_canvas_override_trigger()
+endef
+trigger_table_deps = iiif_canvas_overrides rcri_canvas_override_trigger
+include rules.trigger.mk
+
+trigger_name = rcri_canvas_point_override_trigger
+trigger_table = iiif_canvas_point_overrides
+trigger_events = AFTER INSERT OR UPDATE OR DELETE
+define trigger_body
+FOR EACH ROW EXECUTE PROCEDURE rcri_canvas_override_trigger()
+endef
+trigger_table_deps = iiif_canvas_overrides rcri_canvas_override_trigger
+include rules.trigger.mk
+
+function_name = rcri_canvas_override_trigger
+define function_body
+() RETURNS trigger
+AS
+$$body$$
+BEGIN
+	RAISE NOTICE 'trigger';
+	IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') AND NEW IS NOT NULL THEN
+		RAISE NOTICE 'trigger new';
+		PERFORM rcri_update_canvas_override(NEW.iiif_override_id);
+		RETURN NEW;
+	END IF;
+	IF (TG_OP = 'DELETE') AND OLD IS NOT NULL THEN
+		RAISE NOTICE 'trigger old';
+		PERFORM rcri_update_canvas_override(OLD.iiif_override_id);
+		RETURN OLD;
+	END IF;
+	RETURN NEW;
+END
+$$body$$
+LANGUAGE plpgsql;
+endef
+function_table_deps = rcri_update_canvas_override
+include rules.function.mk
+
+function_name = rcri_update_range
+define function_body
+(range_id_p integer) RETURNS void
+AS
+$$body$$
+WITH delete_ignore AS (
+	DELETE FROM routing_canvas_range_interpolation_cache WHERE range_id = range_id_p
+)
+INSERT INTO routing_canvas_range_interpolation_cache SELECT * FROM routing_canvas_range_interpolation WHERE range_id = range_id_p
+$$body$$
+LANGUAGE SQL;
+endef
+function_table_deps = routing_canvas_range_interpolation_cache routing_canvas_range_interpolation
+include rules.function.mk
+
+function_name = rcri_update_range_override
+define function_body
+(iiif_override_id_p integer) RETURNS void
+AS
+$$body$$
+SELECT
+	rcri_update_range(b.iiif_id)
+FROM
+	iiif_overrides a JOIN iiif b ON
+		a.external_id = b.external_id
+WHERE
+	a.iiif_override_id = iiif_override_id_p
+	AND
+	b.iiif_type_id = 'sc:Range'
+$$body$$
+LANGUAGE SQL;
+endef
+function_table_deps = rcri_update_range iiif_overrides iiif
+include rules.function.mk
+
+function_name = rcri_update_canvas
+define function_body
+(canvas_id_p integer) RETURNS void
+AS
+$$body$$
+SELECT
+	rcri_update_range(b.iiif_id)
+FROM
+	iiif_assoc a JOIN iiif b ON
+		a.iiif_id_from = b.iiif_id
+WHERE
+	a.iiif_id_to = canvas_id_p
+	AND
+	a.iiif_assoc_type_id = 'sc:Canvas'
+	AND
+	b.iiif_type_id = 'sc:Range'
+$$body$$
+LANGUAGE SQL;
+endef
+function_table_deps = rcri_update_range iiif_assoc iiif
+include rules.function.mk
+
+function_name = rcri_update_canvas_override
+define function_body
+-- explain
+(iiif_override_id_p integer) RETURNS void
+AS
+$$body$$
+SELECT
+	rcri_update_canvas(b.iiif_id)
+FROM
+	iiif_overrides a JOIN iiif b ON
+		a.external_id = b.external_id
+WHERE
+	a.iiif_override_id = iiif_override_id_p
+	AND
+	b.iiif_type_id = 'sc:Canvas'
+$$body$$
+LANGUAGE SQL;
+endef
+function_table_deps = rcri_update_canvas iiif_overrides iiif
+include rules.function.mk
+
+view_table_name = routing_canvas_range_interpolation
 define view_sql
 WITH range_fov AS (
 	SELECT
@@ -1193,27 +1311,70 @@ WITH range_fov AS (
 		range_overrides
 )
 SELECT
+	a.*,
+	CASE
+		WHEN a.point IS NULL OR a.bearing IS NULL THEN null
+		ELSE plan_camera(a.point, degrees(a.bearing) + CASE WHEN b.orientation = 'left' THEN -90 ELSE 90 END, b.depth, b.angle)
+	END AS camera
+FROM
+	(
+		SELECT
+			a.range_id,
+			a.iiif_id,
+			a.sequence_num,
+			a.route_point AS point,
+			CASE
+				WHEN route_point IS NULL THEN
+					null
+				WHEN (row_number() OVER points_forward_order) = (count(*) OVER points_forward) THEN
+					ST_Azimuth(lag(route_point, 1) OVER points, route_point)
+				WHEN (row_number() OVER points_forward_order) = 1 THEN
+					ST_Azimuth(route_point, lead(route_point, 1) OVER points)
+				ELSE
+					ST_Azimuth(lag(route_point, 1) OVER points, route_point)
+			END AS bearing
+		FROM
+			(
+				SELECT
+					*,
+					CASE
+						WHEN point IS NOT NULL THEN point
+						WHEN start_point IS NOT NULL AND end_point IS NOT NULL AND start_point::text != end_point::text THEN ST_LineInterpolatePoint(plan_route(start_point, end_point), cume_dist() OVER ranking)
+						ELSE null
+					END AS route_point
+				FROM
+					routing_canvas_range_grouping
+				WINDOW
+					ranking AS (PARTITION BY range_id, reverse ORDER BY sequence_num)
+			) a
+		WINDOW
+			points AS (PARTITION BY range_id, a.route_point IS NOT NULL ORDER BY sequence_num),
+			points_forward AS (PARTITION BY range_id, a.start_point, a.route_point IS NOT NULL),
+			points_forward_order AS (PARTITION BY range_id, a.start_point, a.route_point IS NOT NULL ORDER BY sequence_num)
+	) a JOIN range_fov b ON
+		a.range_id = b.iiif_id
+ORDER BY
+	a.sequence_num
+
+endef
+
+view_table_deps = routing_canvas_range_grouping
+include rules.view.mk
+
+view_table_name = routing_canvas_range_camera
+define view_sql
+SELECT
 	addredge.fullname AS addr_fullname,
 	COALESCE(addredge.zipl, addredge.zipr) AS addr_zipcode,
 	addr.number AS addr_number,
 	a.*
 FROM
-	(
-		SELECT
-			a.*,
-			CASE
-				WHEN a.point IS NULL OR a.bearing IS NULL THEN null
-				ELSE gisapp_camera_fov(a.point, degrees(a.bearing) + CASE WHEN b.orientation = 'left' THEN -90 ELSE 90 END, b.depth, b.angle)
-			END AS camera
-		FROM
-			routing_canvas_range_interpolation a LEFT JOIN range_fov b ON
-				a.range_id = b.iiif_id
-	) a LEFT JOIN LATERAL (SELECT * FROM gisapp_point_addr(a.point)) addr ON
+	routing_canvas_range_interpolation_cache a LEFT JOIN LATERAL (SELECT * FROM gisapp_point_addr(a.point)) addr ON
 		TRUE
 	LEFT JOIN tl_2017_06037_edges addredge ON
 		addr.ogc_fid = addredge.ogc_fid
 endef
-view_table_deps = routing_canvas_range_interpolation gisapp_camera_fov range_overrides gisapp_point_addr
+view_table_deps = routing_canvas_range_interpolation_cache gisapp_camera_fov range_overrides gisapp_point_addr
 include rules.view.mk
 
 PHONY: tableimport configure-geoserver import-tables dump-tables iiif-import
