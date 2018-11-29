@@ -54,6 +54,7 @@ $(TOP_LEVEL)/build/stamps/table-$(trigger_name):: $(patsubst %,$(TOP_LEVEL)/buil
 $(TOP_LEVEL)/build/stamps/table-$(trigger_name): PSQL_db := $(PSQL_db)
 $(TOP_LEVEL)/build/stamps/table-$(trigger_name): trigger_table_deps := $(trigger_table_deps)
 $(TOP_LEVEL)/build/stamps/table-$(trigger_name): trigger_name := $(trigger_name)
+$(TOP_LEVEL)/build/stamps/table-$(trigger_name): trigger_constraint := $(trigger_constraint)
 $(TOP_LEVEL)/build/stamps/table-$(trigger_name): trigger_table := $(trigger_table)
 $(TOP_LEVEL)/build/stamps/table-$(trigger_name): trigger_events := $(trigger_events)
 $(TOP_LEVEL)/build/stamps/table-$(trigger_name): export trigger_body := $(trigger_body)
@@ -62,10 +63,11 @@ $(TOP_LEVEL)/build/stamps/table-$(trigger_name):: $(TOP_LEVEL)/build/stamps/trig
 	@mkdir -p $(@D)
 	echo "trigger_table_deps=$(trigger_table_deps)"
 	$(MAKE) -s tabledrop-$(trigger_name)
-	$(PSQL) -c "CREATE TRIGGER $(trigger_name) $(trigger_events) ON $(trigger_table) $$trigger_body"
+	$(PSQL) -c "CREATE $(if $(trigger_constraint),CONSTRAINT,) TRIGGER $(trigger_name) $(trigger_events) ON $(trigger_table) $$trigger_body"
 	@touch "$@"
 endif
 
 trigger_name =
 trigger_body =
+trigger_constraint =
 trigger_table_deps =

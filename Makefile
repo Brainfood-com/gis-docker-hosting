@@ -1140,7 +1140,7 @@ include rules.view.mk
 
 static_table_name = routing_canvas_range_interpolation_cache
 define static_table_schema
-AS SELECT * FROM routing_canvas_range_interpolation
+AS SELECT *, FALSE AS needs_refresh FROM routing_canvas_range_interpolation
 endef
 static_table_deps = routing_canvas_range_interpolation
 include rules.static-table.mk
@@ -1148,51 +1148,123 @@ index_table_name = routing_canvas_range_interpolation_cache
 index_schema = CREATE INDEX routing_canvas_range_interpolation_cache_range_id ON routing_canvas_range_interpolation_cache (range_id)
 include rules.index.mk
 index_table_name = routing_canvas_range_interpolation_cache
+index_schema = CREATE INDEX routing_canvas_range_interpolation_cache_iiif_id ON routing_canvas_range_interpolation_cache (iiif_id)
+include rules.index.mk
+index_table_name = routing_canvas_range_interpolation_cache
+index_schema = CREATE INDEX routing_canvas_range_interpolation_cache_needs_refresh ON routing_canvas_range_interpolation_cache (needs_refresh)
+include rules.index.mk
+index_table_name = routing_canvas_range_interpolation_cache
 index_schema = CREATE INDEX routing_canvas_range_interpolation_cache_point ON routing_canvas_range_interpolation_cache USING gist(point)
 include rules.index.mk
+index_table_name = routing_canvas_range_interpolation_cache
+index_schema = ALTER TABLE routing_canvas_range_interpolation_cache ADD PRIMARY KEY (range_id, iiif_id)
+include rules.index.mk
+
+trigger_name = rcri_update_needs_refresh_trigger
+trigger_constraint = yes
+trigger_table = routing_canvas_range_interpolation_cache
+trigger_events = AFTER UPDATE
+define trigger_body
+DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (
+	(NEW.needs_refresh AND rcri_check_needs_trigger())
+) EXECUTE PROCEDURE rcri_process_refresh_request_trigger()
+endef
+trigger_table_deps = routing_canvas_range_interpolation_cache rcri_check_needs_trigger rcri_process_refresh_request_trigger
+include rules.trigger.mk
+
+function_name = rcri_check_needs_trigger
+define function_body
+() RETURNS boolean
+AS
+$$body$$
+DECLARE
+	refresh_count INTEGER;
+BEGIN
+	SELECT COUNT(*) INTO refresh_count FROM routing_canvas_range_interpolation_cache WHERE needs_refresh;
+	RETURN refresh_count = 1;
+END
+$$body$$
+LANGUAGE plpgsql
+endef
+function_table_deps = routing_canvas_range_interpolation_cache
+include rules.function.mk
+
+function_name = rcri_process_refresh_request_trigger
+define function_body
+() RETURNS trigger
+AS
+$$body$$
+DECLARE
+	ids INTEGER[];
+BEGIN
+	SELECT ARRAY_AGG(range_id) INTO ids FROM (SELECT DISTINCT range_id FROM routing_canvas_range_interpolation_cache WHERE needs_refresh) a;
+	RAISE NOTICE 'Updating ranges %', ids;
+	DELETE FROM routing_canvas_range_interpolation_cache WHERE range_id = ANY(ids);
+	INSERT INTO
+		routing_canvas_range_interpolation_cache
+	SELECT *, FALSE AS needs_refresh FROM routing_canvas_range_interpolation WHERE range_id = ANY(ids)
+	;
+	RETURN NULL;
+END
+$$body$$
+LANGUAGE plpgsql
+endef
+function_table_deps = routing_canvas_range_interpolation_cache routing_canvas_range_interpolation
+include rules.function.mk
+
 
 trigger_name = rcri_range_override_insert_trigger
 trigger_table = iiif_range_overrides
 trigger_events = AFTER INSERT
 define trigger_body
-FOR EACH ROW EXECUTE PROCEDURE rcri_range_override_trigger()
+FOR EACH ROW WHEN (
+	COALESCE(NEW.fov_angle, 60) != 60
+	OR
+	COALESCE(NEW.fov_depth, 100) != 100
+	OR
+	COALESCE(NEW.fov_orientation, 'left') != 'left'
+) EXECUTE PROCEDURE rcri_override_trigger()
 endef
-trigger_table_deps = iiif_range_overrides rcri_range_override_trigger
+trigger_table_deps = iiif_range_overrides rcri_override_trigger
 include rules.trigger.mk
 
 trigger_name = rcri_range_override_update_trigger
 trigger_table = iiif_range_overrides
 trigger_events = AFTER UPDATE
 define trigger_body
-FOR EACH ROW EXECUTE PROCEDURE rcri_range_override_trigger()
+FOR EACH ROW WHEN (
+	COALESCE(OLD.fov_angle, 60) != COALESCE(NEW.fov_angle, 60)
+	OR
+	COALESCE(OLD.fov_depth, 100) != COALESCE(NEW.fov_depth, 100)
+	OR
+	COALESCE(OLD.fov_orientation, 'left') != COALESCE(NEW.fov_orientation, 'left')
+)
+EXECUTE PROCEDURE rcri_override_trigger()
 endef
-trigger_table_deps = iiif_range_overrides rcri_range_override_trigger
+trigger_table_deps = iiif_range_overrides rcri_override_trigger
 include rules.trigger.mk
 
 trigger_name = rcri_range_override_delete_trigger
 trigger_table = iiif_range_overrides
 trigger_events = AFTER DELETE
 define trigger_body
-FOR EACH ROW EXECUTE PROCEDURE rcri_range_override_trigger()
+FOR EACH ROW EXECUTE PROCEDURE rcri_override_trigger()
 endef
-trigger_table_deps = iiif_range_overrides rcri_range_override_trigger
+trigger_table_deps = iiif_range_overrides rcri_override_trigger
 include rules.trigger.mk
 
-function_name = rcri_range_override_trigger
+function_name = rcri_override_trigger
 define function_body
 () RETURNS trigger
 AS
 $$body$$
 BEGIN
-	RAISE NOTICE 'trigger';
 	IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
-		RAISE NOTICE 'trigger new';
-		PERFORM rcri_update_range_override(NEW.iiif_override_id);
+		PERFORM rcri_update_override(NEW.iiif_override_id);
 		RETURN NEW;
 	END IF;
 	IF (TG_OP = 'DELETE') THEN
-		RAISE NOTICE 'trigger old';
-		PERFORM rcri_update_range_override(OLD.iiif_override_id);
+		PERFORM rcri_update_override(OLD.iiif_override_id);
 		RETURN OLD;
 	END IF;
 	RETURN NEW;
@@ -1200,7 +1272,7 @@ END
 $$body$$
 LANGUAGE plpgsql;
 endef
-function_table_deps = rcri_update_range_override
+function_table_deps = rcri_update_override
 include rules.function.mk
 
 trigger_name = rcri_canvas_override_insert_trigger
@@ -1208,10 +1280,10 @@ trigger_table = iiif_canvas_overrides
 trigger_events = AFTER INSERT
 define trigger_body
 FOR EACH ROW WHEN (
-	NEW.exclude = TRUE -- insert of an exclude
-) EXECUTE PROCEDURE rcri_canvas_override_trigger()
+	COALESCE(NEW.exclude, FALSE) != FALSE -- insert of an exclude
+) EXECUTE PROCEDURE rcri_override_trigger()
 endef
-trigger_table_deps = iiif_canvas_overrides rcri_canvas_override_trigger
+trigger_table_deps = iiif_canvas_overrides rcri_override_trigger
 include rules.trigger.mk
 
 trigger_name = rcri_canvas_override_update_trigger
@@ -1219,135 +1291,107 @@ trigger_table = iiif_canvas_overrides
 trigger_events = AFTER UPDATE
 define trigger_body
 FOR EACH ROW WHEN (
-	TRUE
-	OR
-	((OLD.exclude IS NULL OR OLD.exclude = FALSE) AND NEW.exclude = TRUE) -- update, setting excluded
-	OR
-	(OLD.exclude = TRUE AND (NEW.exclude IS NULL OR NEW.exclude = FALSE)) -- update, removing exclusion
-) EXECUTE PROCEDURE rcri_canvas_override_trigger()
+	COALESCE(OLD.exclude, FALSE) != COALESCE(NEW.exclude, FALSE)
+) EXECUTE PROCEDURE rcri_override_trigger()
 endef
-trigger_table_deps = iiif_canvas_overrides rcri_canvas_override_trigger
+trigger_table_deps = iiif_canvas_overrides rcri_override_trigger
 include rules.trigger.mk
 
 trigger_name = rcri_canvas_override_delete_trigger
 trigger_table = iiif_canvas_overrides
 trigger_events = AFTER DELETE
 define trigger_body
-FOR EACH ROW WHEN (OLD.exclude = TRUE) EXECUTE PROCEDURE rcri_canvas_override_trigger()
+FOR EACH ROW WHEN (
+	COALESCE(OLD.exclude, FALSE) != FALSE
+) EXECUTE PROCEDURE rcri_override_trigger()
 endef
-trigger_table_deps = iiif_canvas_overrides rcri_canvas_override_trigger
+trigger_table_deps = iiif_canvas_overrides rcri_override_trigger
 include rules.trigger.mk
 
-trigger_name = rcri_canvas_point_override_trigger
+trigger_name = rcri_canvas_point_override_insert_trigger
 trigger_table = iiif_canvas_point_overrides
-trigger_events = AFTER INSERT OR UPDATE OR DELETE
+trigger_events = AFTER INSERT
 define trigger_body
-FOR EACH ROW EXECUTE PROCEDURE rcri_canvas_override_trigger()
+FOR EACH ROW WHEN (
+	NEW.point IS NOT NULL
+) EXECUTE PROCEDURE rcri_override_trigger()
 endef
-trigger_table_deps = iiif_canvas_overrides rcri_canvas_override_trigger
+trigger_table_deps = iiif_canvas_overrides rcri_override_trigger
 include rules.trigger.mk
 
-function_name = rcri_canvas_override_trigger
-define function_body
-() RETURNS trigger
-AS
-$$body$$
-BEGIN
-	RAISE NOTICE 'trigger';
-	IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') AND NEW IS NOT NULL THEN
-		RAISE NOTICE 'trigger new';
-		PERFORM rcri_update_canvas_override(NEW.iiif_override_id);
-		RETURN NEW;
-	END IF;
-	IF (TG_OP = 'DELETE') AND OLD IS NOT NULL THEN
-		RAISE NOTICE 'trigger old';
-		PERFORM rcri_update_canvas_override(OLD.iiif_override_id);
-		RETURN OLD;
-	END IF;
-	RETURN NEW;
-END
-$$body$$
-LANGUAGE plpgsql;
+trigger_name = rcri_canvas_point_override_update_trigger
+trigger_table = iiif_canvas_point_overrides
+trigger_events = AFTER UPDATE
+define trigger_body
+FOR EACH ROW WHEN (
+	(OLD.priority IS NULL AND NEW.priority IS NOT NULL)
+	OR
+	(OLD.priority IS NOT NULL AND NEW.priority IS NULL)
+	OR
+	(OLD.priority != NEW.priority)
+	OR
+	(OLD.point IS NULL AND NEW.point IS NOT NULL)
+	OR
+	(OLD.point IS NOT NULL AND NEW.point IS NULL)
+	OR
+	(ST_Equals(OLD.point, NEW.point))
+) EXECUTE PROCEDURE rcri_override_trigger()
 endef
-function_table_deps = rcri_update_canvas_override
-include rules.function.mk
+trigger_table_deps = iiif_canvas_overrides rcri_override_trigger
+include rules.trigger.mk
 
-function_name = rcri_update_range
-define function_body
-(range_id_p integer) RETURNS void
-AS
-$$body$$
-WITH delete_ignore AS (
-	DELETE FROM routing_canvas_range_interpolation_cache WHERE range_id = range_id_p
-)
-INSERT INTO routing_canvas_range_interpolation_cache SELECT * FROM routing_canvas_range_interpolation WHERE range_id = range_id_p
-$$body$$
-LANGUAGE SQL;
+trigger_name = rcri_canvas_point_override_delete_trigger
+trigger_table = iiif_canvas_point_overrides
+trigger_events = AFTER DELETE
+define trigger_body
+FOR EACH ROW WHEN (
+	OLD.point IS NOT NULL
+) EXECUTE PROCEDURE rcri_override_trigger()
 endef
-function_table_deps = routing_canvas_range_interpolation_cache routing_canvas_range_interpolation
-include rules.function.mk
+trigger_table_deps = iiif_canvas_overrides rcri_override_trigger
+include rules.trigger.mk
 
-function_name = rcri_update_range_override
+function_name = rcri_update_schedule
 define function_body
-(iiif_override_id_p integer) RETURNS void
+(iiif_id_p integer) RETURNS void
 AS
 $$body$$
-SELECT
-	rcri_update_range(b.iiif_id)
-FROM
-	iiif_overrides a JOIN iiif b ON
-		a.external_id = b.external_id
+UPDATE routing_canvas_range_interpolation_cache
+SET needs_refresh = TRUE
 WHERE
-	a.iiif_override_id = iiif_override_id_p
+	iiif_id_p IS NOT NULL
 	AND
-	b.iiif_type_id = 'sc:Range'
+	(
+		iiif_id_p = range_id
+		OR
+		iiif_id_p = iiif_id
+	)
 $$body$$
 LANGUAGE SQL;
 endef
-function_table_deps = rcri_update_range iiif_overrides iiif
+function_table_deps = routing_canvas_range_interpolation_cache
 include rules.function.mk
 
-function_name = rcri_update_canvas
-define function_body
-(canvas_id_p integer) RETURNS void
-AS
-$$body$$
-SELECT
-	rcri_update_range(b.iiif_id)
-FROM
-	iiif_assoc a JOIN iiif b ON
-		a.iiif_id_from = b.iiif_id
-WHERE
-	a.iiif_id_to = canvas_id_p
-	AND
-	a.iiif_assoc_type_id = 'sc:Canvas'
-	AND
-	b.iiif_type_id = 'sc:Range'
-$$body$$
-LANGUAGE SQL;
-endef
-function_table_deps = rcri_update_range iiif_assoc iiif
-include rules.function.mk
-
-function_name = rcri_update_canvas_override
+function_name = rcri_update_override
 define function_body
 -- explain
 (iiif_override_id_p integer) RETURNS void
 AS
 $$body$$
 SELECT
-	rcri_update_canvas(b.iiif_id)
+	CASE
+		WHEN b.iiif_type_id = 'sc:Canvas' THEN rcri_update_schedule(b.iiif_id)
+		WHEN b.iiif_type_id = 'sc:Range' THEN rcri_update_schedule(b.iiif_id)
+	END AS ignore
 FROM
 	iiif_overrides a JOIN iiif b ON
 		a.external_id = b.external_id
 WHERE
 	a.iiif_override_id = iiif_override_id_p
-	AND
-	b.iiif_type_id = 'sc:Canvas'
 $$body$$
 LANGUAGE SQL;
 endef
-function_table_deps = rcri_update_canvas iiif_overrides iiif
+function_table_deps = rcri_update_schedule iiif_overrides iiif
 include rules.function.mk
 
 view_table_name = routing_canvas_range_interpolation
