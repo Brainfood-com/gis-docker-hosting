@@ -1334,7 +1334,7 @@ FOR EACH ROW WHEN (
 	OR
 	(OLD.point IS NOT NULL AND NEW.point IS NULL)
 	OR
-	(ST_Equals(OLD.point, NEW.point))
+	(NOT ST_Equals(OLD.point, NEW.point))
 ) EXECUTE PROCEDURE rcri_override_trigger()
 endef
 trigger_table_deps = iiif_canvas_overrides rcri_override_trigger
