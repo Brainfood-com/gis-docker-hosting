@@ -1493,7 +1493,7 @@ ORDER BY
 
 endef
 
-view_table_deps = routing_canvas_range_grouping
+view_table_deps = routing_canvas_range_grouping plan_route range_overrides gisapp_camera_fov
 include rules.view.mk
 
 view_table_name = routing_canvas_range_camera
