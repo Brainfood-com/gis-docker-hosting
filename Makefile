@@ -1189,6 +1189,44 @@ endef
 function_table_deps = routing_canvas_range_interpolation_cache
 include rules.function.mk
 
+define rcri_summary_table_def
+(
+	name TEXT,
+	number NUMERIC,
+	text TEXT,
+	geometry GEOMETRY
+)
+
+endef
+
+static_table_name = routing_canvas_range_interpolation_summary
+define static_table_schema
+AS SELECT * FROM rcri_summary()
+endef
+static_table_deps = rcri_summary
+include rules.static-table.mk
+index_table_name = routing_canvas_range_interpolation_summary
+index_schema = CREATE UNIQUE INDEX routing_canvas_range_interpolation_summary_pk ON routing_canvas_range_interpolation_summary (name)
+include rules.index.mk
+
+function_name = rcri_summary
+define function_body
+() RETURNS TABLE $(rcri_summary_table_def)
+AS
+$$body$$
+SELECT
+	'global_bounds' AS name,
+	NULL::numeric AS number,
+	NULL::text AS text,
+	ST_Extent(point)::geometry AS geometry
+FROM
+	routing_canvas_range_interpolation_cache
+$$body$$
+LANGUAGE sql
+endef
+function_table_deps = routing_canvas_range_interpolation_cache
+include rules.function.mk
+
 function_name = rcri_process_refresh_request_trigger
 define function_body
 () RETURNS trigger
@@ -1202,8 +1240,9 @@ BEGIN
 	DELETE FROM routing_canvas_range_interpolation_cache WHERE range_id = ANY(ids);
 	INSERT INTO
 		routing_canvas_range_interpolation_cache
-	SELECT *, FALSE AS needs_refresh FROM routing_canvas_range_interpolation WHERE range_id = ANY(ids)
-	;
+	SELECT *, FALSE AS needs_refresh FROM routing_canvas_range_interpolation WHERE range_id = ANY(ids);
+	TRUNCATE routing_canvas_range_interpolation_summary;
+	INSERT INTO routing_canvas_range_interpolation_summary SELECT * FROM rcri_summary();
 	RETURN NULL;
 END
 $$body$$
