@@ -752,13 +752,13 @@ view_table_name = range_overrides
 define view_sql
 SELECT
   iiif.iiif_id,
-  iiif_overrides.external_id,
+  iiif.external_id,
   iiif_overrides.notes,
   iiif_range_overrides.*
 FROM
-  iiif JOIN iiif_overrides ON
+  iiif LEFT JOIN iiif_overrides ON
     iiif.external_id = iiif_overrides.external_id
-  JOIN iiif_range_overrides ON
+  LEFT JOIN iiif_range_overrides ON
     iiif_overrides.iiif_override_id = iiif_range_overrides.iiif_override_id
 endef
 view_table_deps = iiif iiif_overrides iiif_range_overrides
@@ -768,13 +768,13 @@ view_table_name = canvas_overrides
 define view_sql
 SELECT
   iiif.iiif_id,
-  iiif_overrides.external_id,
+  iiif.external_id,
   iiif_overrides.notes,
   iiif_canvas_overrides.*
 FROM
-  iiif JOIN iiif_overrides ON
+  iiif LEFT JOIN iiif_overrides ON
     iiif.external_id = iiif_overrides.external_id
-  JOIN iiif_canvas_overrides ON
+  LEFT JOIN iiif_canvas_overrides ON
     iiif_overrides.iiif_override_id = iiif_canvas_overrides.iiif_override_id
 endef
 view_table_deps = iiif iiif_overrides iiif_canvas_overrides
@@ -784,12 +784,12 @@ view_table_name = canvas_point_overrides
 define view_sql
 SELECT
   iiif.iiif_id,
-  iiif_overrides.external_id,
+  iiif.external_id,
   iiif_canvas_point_overrides.*
 FROM
-  iiif JOIN iiif_overrides ON
+  iiif LEFT JOIN iiif_overrides ON
     iiif.external_id = iiif_overrides.external_id
-  JOIN iiif_canvas_point_overrides ON
+  LEFT JOIN iiif_canvas_point_overrides ON
     iiif_overrides.iiif_override_id = iiif_canvas_point_overrides.iiif_override_id
 endef
 view_table_deps = iiif iiif_overrides iiif_canvas_point_overrides
