@@ -1505,7 +1505,7 @@ include rules.view.mk
 
 PHONY: tableimport configure-geoserver import-tables dump-tables iiif-import
 
-iiif_json_files := $(shell find data/media.getty.edu/ -name '*.json')
+iiif_json_files := $(shell find data/media.getty.edu/ -name 'collection.json' -or -name 'manifest.json')
 iiif_tables = iiif iiif_metadata iiif_assoc iiif_manifest iiif_range iiif_canvas
 iiif-import: $(TOP_LEVEL)/build/stamps/iiif-import
 $(TOP_LEVEL)/build/stamps/iiif-import: $(iiif_json_files) $(patsubst %,$(TOP_LEVEL)/build/stamps/table-%,$(iiif_tables))
