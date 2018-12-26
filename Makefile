@@ -1230,16 +1230,29 @@ BEGIN
 	RAISE NOTICE 'Updating ranges %', ids;
 	DELETE FROM routing_canvas_range_interpolation_cache WHERE range_id = ANY(ids);
 	DELETE FROM rcri_range_summary_cache WHERE range_id = ANY(ids);
+	DELETE FROM rcri_buildings WHERE range_id = ANY(ids);
 	INSERT INTO
 		routing_canvas_range_interpolation_cache
 	SELECT *, FALSE AS needs_refresh FROM routing_canvas_range_interpolation WHERE range_id = ANY(ids);
 	INSERT INTO rcri_range_summary_cache SELECT * FROM rcri_range_summary WHERE range_id = ANY(ids);
+	INSERT INTO
+		rcri_buildings
+	SELECT
+		a.range_id,
+		a.iiif_id,
+		b.ogc_fid AS building_id
+	FROM
+		routing_canvas_range_interpolation_cache a JOIN lariac_buildings b ON
+			ST_Intersects(a.camera, b.wkb_geometry)
+	WHERE
+		a.range_id = ANY(ids)
+	;
 	RETURN NULL;
 END
 $$body$$
 LANGUAGE plpgsql
 endef
-function_table_deps = routing_canvas_range_interpolation_cache routing_canvas_range_interpolation rcri_range_summary_cache rcri_range_summary
+function_table_deps = routing_canvas_range_interpolation_cache routing_canvas_range_interpolation rcri_range_summary_cache rcri_range_summary rcri_buildings lariac_buildings
 include rules.function.mk
 
 
@@ -1486,6 +1499,25 @@ endef
 
 view_table_deps = routing_canvas_range_grouping plan_route range_overrides gisapp_camera_fov
 include rules.view.mk
+
+static_table_name = rcri_buildings
+define static_table_schema
+AS
+SELECT
+	a.range_id,
+	a.iiif_id,
+	b.ogc_fid AS building_id
+FROM
+	routing_canvas_range_interpolation_cache a JOIN lariac_buildings b ON ST_Intersects(a.camera, b.wkb_geometry)
+endef
+static_table_deps = routing_canvas_range_interpolation_cache lariac_buildings
+include rules.static-table.mk
+index_table_name = rcri_buildings
+index_schema = CREATE INDEX rcri_buildings_range_id ON rcri_buildings (range_id)
+include rules.index.mk
+index_table_name = rcri_buildings
+index_schema = CREATE INDEX rcri_buildings_building_id ON rcri_buildings (building_id)
+include rules.index.mk
 
 view_table_name = routing_canvas_range_camera
 define view_sql
