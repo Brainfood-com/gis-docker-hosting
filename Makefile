@@ -1227,6 +1227,21 @@ DECLARE
 	ids INTEGER[];
 BEGIN
 	SELECT ARRAY_AGG(range_id) INTO ids FROM (SELECT DISTINCT range_id FROM routing_canvas_range_interpolation_cache WHERE needs_refresh) a;
+	EXECUTE rcri_update_ranges(ids);
+	RETURN NULL;
+END
+$$body$$
+LANGUAGE plpgsql
+endef
+function_table_deps = routing_canvas_range_interpolation_cache rcri_update_ranges
+include rules.function.mk
+
+function_name = rcri_update_ranges
+define function_body
+(ids INTEGER[]) RETURNS void
+AS
+$$body$$
+BEGIN
 	RAISE NOTICE 'Updating ranges %', ids;
 	DELETE FROM routing_canvas_range_interpolation_cache WHERE range_id = ANY(ids);
 	DELETE FROM rcri_range_summary_cache WHERE range_id = ANY(ids);
@@ -1247,7 +1262,6 @@ BEGIN
 	WHERE
 		a.range_id = ANY(ids)
 	;
-	RETURN NULL;
 END
 $$body$$
 LANGUAGE plpgsql
