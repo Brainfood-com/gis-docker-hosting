@@ -197,6 +197,7 @@ services:
     volumes:
       - npm-cache:/home/node/.npm/_cacache
       - ./gis-api:/srv/app
+      - ./etc/gis-api:/srv/app/etc:ro
       - ./data/exports:/srv/app/exports
       - ./data/geojson:/srv/app/geojson
     working_dir: /srv/app
