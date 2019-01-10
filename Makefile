@@ -706,6 +706,23 @@ endef
 static_table_deps = iiif_overrides iiif_tags
 include rules.static-table.mk
 
+static_table_name = iiif_overrides_values
+define static_table_schema
+(
+	iiif_override_id INTEGER REFERENCES iiif_overrides(iiif_override_id),
+	value_type_id TEXT,
+	name TEXT,
+	number_value NUMERIC,
+	text_value TEXT,
+	timestamp_value TIMESTAMP,
+	json_value JSONB,
+	geometry_value GEOMETRY,
+	PRIMARY KEY(iiif_override_id, name)
+)
+endef
+static_table_deps = iiif_overrides
+include rules.static-table.mk
+
 static_table_name = iiif_range_overrides
 define static_table_schema
 (
@@ -747,6 +764,22 @@ define static_table_schema
 endef
 static_table_deps = iiif_overrides
 include rules.static-table.mk
+
+view_table_name = iiif_values
+define view_sql
+SELECT
+  a.iiif_id,
+  json_agg(to_json(c.*)) AS values
+FROM
+  iiif a JOIN iiif_overrides b ON
+    a.external_id = b.external_id
+  JOIN iiif_overrides_values c ON
+    b.iiif_override_id = c.iiif_override_id
+GROUP BY
+  a.iiif_id
+endef
+view_table_deps = iiif iiif_overrides iiif_overrides_values
+include rules.view.mk
 
 view_table_name = range_overrides
 define view_sql
