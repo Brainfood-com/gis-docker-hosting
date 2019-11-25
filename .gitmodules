@@ -13,3 +13,6 @@
 [submodule "gis-api"]
 	path = gis-api
 	url = git@github.com:Brainfood-com/gis-api.git
+[submodule "container-scripts"]
+	path = container-scripts
+	url = git@github.com:Brainfood-com/docker-container-scripts.git

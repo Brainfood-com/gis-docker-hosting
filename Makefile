@@ -18,7 +18,7 @@ import:
 prune:
 
 PSQL_db = GIS
-PSQL = ./gis.sh psql gis ${POSTGRES_${PSQL_db}_USER} < /dev/null
+PSQL = ./bin/psql gis ${POSTGRES_${PSQL_db}_USER} < /dev/null
 
 include rules.mk
 

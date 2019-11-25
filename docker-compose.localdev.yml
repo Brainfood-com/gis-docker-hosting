@@ -6,26 +6,32 @@ x-logging: &_logging
     max-size: "50m"
     max-file: "10"
 
+x-node-environment: &_node-environment
+  GIS_BUILD_TARGET:
+  MAP_USER:
+  VHOST_SUFFIX:
+  NPM_AUTO_INSTALL: 1
+
 x-node-base: &_node-base
   build:
-    target: gis_dev
     args:
       - http_proxy
-    context: .
+      - NPM_VERSION=6.7.0
+    context: container-scripts
     dockerfile: Dockerfile.node
-    network: localdev_default
-  command: ["app-npm", "gosu", "node", "npm", "run", "dev"]
+    network: build
+  environment:
+    <<: *_node-environment
   image: gis-dev-node
   networks:
     default:
-    localdev:
     nginx:
   restart: always
 
 networks:
-  localdev:
+  build:
     external:
-      name: localdev_default
+      name: build
   nginx:
     external:
       name: nginx
@@ -33,30 +39,29 @@ networks:
 volumes:
   npm-cache:
   pgdata:
+  postgresql-java:
 
 services:
   postgresql:
     build:
       args:
         - http_proxy
-      context: .
+      context: container-scripts
       dockerfile: Dockerfile.postgresql
-      network: localdev_default
+      network: build
     #command: /sbin/my_init
     env_file:
       - ./.env.defaults
     environment:
       - PGDATA=/var/lib/postgresql/data
     image: gis-postgresql
-    labels:
-      - com.brainfood.docker.localdev.target_user=postgres
-      - com.brainfood.docker.localdev.tool.pg_dump
-      - com.brainfood.docker.localdev.tool.psql
     logging:
       <<: *_logging
     networks:
       - default
     volumes:
+      - postgresql-java:/usr/share/java:ro
+      - ./etc/postgresql-docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
       - /srv/docker/gis/postgresql/data:/var/lib/postgresql/data
 
   minio:
@@ -132,7 +137,7 @@ services:
         - MAVEN_REPO_MIRROR
       context: .
       dockerfile: Dockerfile.geoserver
-      network: localdev_default
+      network: build
     depends_on:
       - postgresql
     environment:
@@ -163,7 +168,7 @@ services:
         - http_proxy
       context: .
       dockerfile: Dockerfile.gdal
-      network: localdev_default
+      network: build
     depends_on:
       - postgresql
     env_file:
@@ -189,8 +194,9 @@ services:
 
   gis-api:
     <<: *_node-base
+    command: ['gosu', 'node', 'npm', 'run', 'dev']
     environment:
-      VHOST_SUFFIX:
+      <<: *_node-environment
       VIRTUAL_HOST: api.${VHOST_SUFFIX}
       CALCULATE_ROUTE_CONCURRENCY:
       GOOGLE_MAPS_API_KEY:
@@ -204,11 +210,12 @@ services:
 
   web-frontend:
     <<: *_node-base
+    command: ['gosu', 'node', 'npm', 'run', 'dev']
     environment:
+      <<: *_node-environment
       GIS_BUILD_TARGET:
       GIS_GA_ID:
       HOST: 0.0.0.0
-      VHOST_SUFFIX:
       VIRTUAL_HOST: www.${VHOST_SUFFIX},${VHOST_SUFFIX}
     volumes:
       - npm-cache:/home/node/.npm/_cacache
@@ -216,20 +223,14 @@ services:
       - ./gis-frontend:/srv/app/git-frontend
     working_dir: /srv/app/git-frontend
 
-  node:
+  helper-node:
     <<: *_node-base
     command: ["sleep", "infinity"]
     depends_on:
       - postgresql
-    environment:
-      GIS_BUILD_TARGET:
-      VHOST_SUFFIX:
     labels:
-      - com.brainfood.docker.localdev.target_pwd=relative
-      - com.brainfood.docker.localdev.target_user=node
-      - com.brainfood.docker.localdev.tool.npm
       - com.brainfood.docker.localdev.tool.gis-iiif-loader=/srv/app/gis-iiif-loader/iiif-loader.js
     volumes:
       - npm-cache:/home/node/.npm/_cacache
+      - ./.localdev/npm-prefix:/home/node/.npm-prefix:rw
       - .:/srv/app
-    working_dir: /srv/app
